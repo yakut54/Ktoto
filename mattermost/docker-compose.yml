@@ -1,0 +1,56 @@
+services:
+  mattermost:
+    image: mattermost/mattermost-team-edition:latest
+    container_name: mattermost_app
+    restart: unless-stopped
+    depends_on:
+      mattermost_db:
+        condition: service_healthy
+    environment:
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: postgres://mattermost:mattermost_pass@mattermost_db:5432/mattermost?sslmode=disable
+      MM_SERVICESETTINGS_SITEURL: https://chat.yakut54.ru
+      MM_SERVICESETTINGS_LISTENADDRESS: :8065
+      MM_FILESETTINGS_DIRECTORY: /mattermost/data/
+      MM_LOGSETTINGS_ENABLECONSOLE: "true"
+      MM_PLUGINSETTINGS_ENABLEUPLOADS: "true"
+      # Лимиты файлов
+      MM_FILESETTINGS_MAXFILESIZE: "52428800"  # 50MB
+    volumes:
+      - mattermost_data:/mattermost/data
+      - mattermost_logs:/mattermost/logs
+      - mattermost_config:/mattermost/config
+      - mattermost_plugins:/mattermost/plugins
+    ports:
+      - "8065:8065"
+    networks:
+      - mattermost_net
+
+  mattermost_db:
+    image: postgres:16-alpine
+    container_name: mattermost_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mattermost
+      POSTGRES_USER: mattermost
+      POSTGRES_PASSWORD: mattermost_pass
+    volumes:
+      - mattermost_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mattermost -d mattermost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mattermost_net
+
+volumes:
+  mattermost_data:
+  mattermost_logs:
+  mattermost_config:
+  mattermost_pgdata:
+  mattermost_plugins:
+
+networks:
+  mattermost_net:
+    driver: bridge
