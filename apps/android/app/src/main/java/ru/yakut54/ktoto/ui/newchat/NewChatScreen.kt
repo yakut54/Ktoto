@@ -35,7 +35,7 @@ import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NewChatScreen(onBack: () -> Unit, onCreated: (convId: String) -> Unit) {
+fun NewChatScreen(onBack: () -> Unit, onCreated: (convId: String, convName: String) -> Unit) {
     val vm: NewChatViewModel = koinViewModel()
     val query by vm.query.collectAsState()
     val users by vm.users.collectAsState()
@@ -71,7 +71,7 @@ fun NewChatScreen(onBack: () -> Unit, onCreated: (convId: String) -> Unit) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { vm.createDirect(user.id, onCreated) }
+                            .clickable { vm.createDirect(user.id, user.username, onCreated) }
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {

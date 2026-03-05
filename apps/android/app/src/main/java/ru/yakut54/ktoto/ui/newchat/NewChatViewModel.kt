@@ -45,7 +45,7 @@ class NewChatViewModel(
         }
     }
 
-    fun createDirect(userId: String, onCreated: (convId: String) -> Unit) {
+    fun createDirect(userId: String, username: String, onCreated: (convId: String, convName: String) -> Unit) {
         viewModelScope.launch {
             runCatching {
                 val token = tokenStore.accessToken.first() ?: return@launch
@@ -54,7 +54,7 @@ class NewChatViewModel(
                     CreateConversationRequest(type = "direct", userId = userId),
                 )
                 val convId = result["id"] as? String ?: return@launch
-                onCreated(convId)
+                onCreated(convId, username)
             }
         }
     }

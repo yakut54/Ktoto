@@ -31,6 +31,7 @@ fun AppNavigation() {
     val tokenStore: TokenStore = koinInject()
     val socketManager: SocketManager = koinInject()
     val token by tokenStore.accessToken.collectAsState(initial = null)
+    val currentUserId by tokenStore.userId.collectAsState(initial = "")
 
     val navController = rememberNavController()
     val startDestination = if (token != null) Routes.CONVERSATIONS else Routes.AUTH
@@ -63,9 +64,10 @@ fun AppNavigation() {
         composable(Routes.NEW_CHAT) {
             NewChatScreen(
                 onBack = { navController.popBackStack() },
-                onCreated = { convId ->
-                    navController.navigate(Routes.CONVERSATIONS) {
-                        popUpTo(Routes.CONVERSATIONS) { inclusive = true }
+                onCreated = { convId, convName ->
+                    token?.let { socketManager.connect(it) }
+                    navController.navigate(Routes.chat(convId, convName, currentUserId)) {
+                        popUpTo(Routes.NEW_CHAT) { inclusive = true }
                     }
                 },
             )
