@@ -433,7 +433,7 @@ private fun ImageBubble(message: Message, isMine: Boolean, bubbleColor: Color, t
     ) {
         val imageUrl = att?.thumbnailUrl ?: att?.url
         if (imageUrl != null) {
-            val ratio = if (att.width != null && att.height != null && att.width > 0)
+            val ratio = if (att?.width != null && att.height != null && att.width > 0)
                 att.width.toFloat() / att.height.toFloat() else 1f
             AsyncImage(
                 model = imageUrl,
