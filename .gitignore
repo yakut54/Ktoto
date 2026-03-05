@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+*.log
+.turbo/
+.cache/
+coverage/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.dart_tool/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db

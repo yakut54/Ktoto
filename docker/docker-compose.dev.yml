@@ -1,0 +1,62 @@
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: apps/backend/Dockerfile
+    container_name: ktoto_backend_dev
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - ../.env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - ktoto_dev
+
+  db:
+    image: postgres:16-alpine
+    container_name: ktoto_db_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-ktoto}
+      POSTGRES_USER: ${DB_USER:-ktoto}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ktoto_dev}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ktoto_pgdata_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-ktoto}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - ktoto_dev
+
+  redis:
+    image: redis:7-alpine
+    container_name: ktoto_redis_dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - ktoto_redis_dev:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ktoto_dev
+
+volumes:
+  ktoto_pgdata_dev:
+  ktoto_redis_dev:
+
+networks:
+  ktoto_dev:
+    driver: bridge
