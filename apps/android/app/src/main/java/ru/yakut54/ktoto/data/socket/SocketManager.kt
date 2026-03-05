@@ -32,6 +32,7 @@ class SocketManager {
                 val json = args[0].toString()
                 runCatching { gson.fromJson(json, Message::class.java) }
                     .onSuccess { _messages.tryEmit(it) }
+                    .onFailure { android.util.Log.e("SocketManager", "new_message parse error: $json", it) }
             }
             on("typing") { args ->
                 runCatching {

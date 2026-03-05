@@ -312,18 +312,35 @@ class ChatViewModel(
     private fun uploadVoice(file: File, duration: Int) {
         viewModelScope.launch {
             _sending.value = true
-            runCatching {
-                val token = tokenStore.accessToken.first() ?: return@launch
+            try {
+                val token = tokenStore.accessToken.first()
+                    ?: throw IllegalStateException("No access token")
                 val filePart = MultipartBody.Part.createFormData(
                     "file", file.name, file.asRequestBody("audio/mp4".toMediaType())
                 )
                 val metaPart = Gson().toJson(mapOf("type" to "voice", "duration" to duration))
                     .toRequestBody("application/json".toMediaType())
                 val msg = api.uploadMessage("Bearer $token", conversationId, filePart, metaPart)
-                if (_messages.value.none { it.id == msg.id }) _messages.value = _messages.value + msg
+                // Add from API response, or update if WS already added it without full attachment
+                _messages.value = if (_messages.value.none { it.id == msg.id }) {
+                    _messages.value + msg
+                } else {
+                    _messages.value.map { if (it.id == msg.id) msg else it }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ChatViewModel", "Voice upload failed, reloading messages", e)
+                // Fallback: reload messages so the voice message (saved server-side) appears
+                runCatching {
+                    val token = tokenStore.accessToken.first() ?: return@runCatching
+                    val latest = api.getMessages("Bearer $token", conversationId)
+                    val existingIds = _messages.value.map { it.id }.toSet()
+                    val newMsgs = latest.filter { it.id !in existingIds }
+                    if (newMsgs.isNotEmpty()) _messages.value = _messages.value + newMsgs
+                }
+            } finally {
+                _sending.value = false
+                file.delete()
             }
-            _sending.value = false
-            file.delete()
         }
     }
 

@@ -277,6 +277,7 @@ export async function conversationRoutes(app: FastifyInstance) {
             editedAt: r.edited_at,
             replyToId: r.reply_to_id,
             sender: { id: r.user_id, username: r.username, avatarUrl: r.avatar_url },
+            conversationId: convId,
             attachment,
           }
         }),
