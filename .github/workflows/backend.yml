@@ -146,7 +146,7 @@ jobs:
 
             # Health check with retry
             for i in $(seq 1 15); do
-              docker exec ktoto_backend wget -qO- http://localhost:3000/health && echo "Deploy successful ✓" && exit 0
+              docker exec ktoto_backend wget -qO- http://127.0.0.1:3000/health && echo "Deploy successful ✓" && exit 0
               echo "Waiting... ($i/15)"
               sleep 3
             done
