@@ -131,17 +131,19 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            cd /opt/ktoto
+            cd /opt/ktoto/docker
 
-            # Pull latest images
-            docker compose -f docker/docker-compose.prod.yml pull backend
+            # Логинимся в GHCR
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u yakut54 --password-stdin || true
 
-            # Run migrations
-            docker compose -f docker/docker-compose.prod.yml run --rm backend \
-              node dist/db/migrate.js
+            # Pull и деплой
+            docker compose -f docker-compose.prod.yml --env-file .env.prod pull backend
+            docker compose -f docker-compose.prod.yml --env-file .env.prod up -d backend
 
-            # Restart backend
-            docker compose -f docker/docker-compose.prod.yml up -d backend
+            # Миграции
+            sleep 5
+            docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T backend \
+              node dist/db/migrate.js || true
 
             # Health check
             sleep 10
