@@ -4,8 +4,8 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
-    payload: { userId: string; type: 'access' | 'refresh' }
-    user: { userId: string; type: 'access' | 'refresh' }
+    payload: { userId: string; type: 'access' | 'refresh'; jti?: string }
+    user: { userId: string; type: 'access' | 'refresh'; jti?: string }
   }
 }
 
