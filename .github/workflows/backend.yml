@@ -142,12 +142,11 @@ jobs:
 
             # Миграции
             sleep 5
-            docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T backend \
-              node dist/db/migrate.js || true
+            docker exec ktoto_backend node dist/db/migrate.js || true
 
             # Health check
             sleep 10
-            curl -f http://localhost:3000/health || exit 1
+            docker exec ktoto_backend wget -qO- http://localhost:3000/health || exit 1
 
             echo "Deploy successful ✓"
 

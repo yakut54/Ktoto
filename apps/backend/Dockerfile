@@ -29,6 +29,7 @@ COPY apps/backend/package.json ./apps/backend/
 RUN pnpm install --frozen-lockfile --prod
 
 COPY --from=builder /app/apps/backend/dist ./apps/backend/dist
+COPY apps/backend/src/db/schema.sql ./apps/backend/dist/db/schema.sql
 
 WORKDIR /app/apps/backend
 

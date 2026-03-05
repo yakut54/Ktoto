@@ -3,6 +3,8 @@ services:
     image: ghcr.io/yakut54/ktoto/backend:${IMAGE_TAG:-latest}
     container_name: ktoto_backend
     restart: unless-stopped
+    ports:
+      - "3000:3000"
     env_file: .env.prod
     depends_on:
       db:
