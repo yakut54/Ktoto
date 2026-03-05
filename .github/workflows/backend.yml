@@ -6,12 +6,15 @@ on:
     paths:
       - 'apps/backend/**'
       - 'packages/**'
+      - 'pnpm-lock.yaml'
       - '.github/workflows/backend.yml'
   pull_request:
     branches: [main]
     paths:
       - 'apps/backend/**'
       - 'packages/**'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
