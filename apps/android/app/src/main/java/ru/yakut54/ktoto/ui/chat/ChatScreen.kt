@@ -1015,6 +1015,7 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
     val att = message.attachment
     var isPlaying by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
+    var loadError by remember { mutableStateOf(false) }
     val player = remember { mutableStateOf<MediaPlayer?>(null) }
 
     DisposableEffect(Unit) {
@@ -1031,37 +1032,58 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
         }
     }
 
-    Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    Column(modifier = Modifier.widthIn(min = 200.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             IconButton(onClick = {
+                if (loadError) return@IconButton
                 if (isPlaying) {
-                    player.value?.pause(); isPlaying = false
+                    player.value?.pause()
+                    isPlaying = false
                 } else {
-                    if (player.value == null && att?.url != null) {
-                        player.value = MediaPlayer().apply {
-                            setDataSource(att.url)
-                            prepareAsync()
-                            setOnPreparedListener { start(); isPlaying = true }
-                            setOnCompletionListener { isPlaying = false; progress = 0f }
-                        }
+                    val url = att?.url
+                    if (url.isNullOrBlank()) { loadError = true; return@IconButton }
+                    if (player.value == null) {
+                        runCatching {
+                            player.value = MediaPlayer().apply {
+                                setDataSource(url)
+                                setOnErrorListener { _, _, _ -> loadError = true; isPlaying = false; true }
+                                prepareAsync()
+                                setOnPreparedListener { start(); isPlaying = true }
+                                setOnCompletionListener { isPlaying = false; progress = 0f }
+                            }
+                        }.onFailure { loadError = true }
                     } else {
-                        player.value?.start(); isPlaying = true
+                        player.value?.start()
+                        isPlaying = true
                     }
                 }
             }) {
                 Icon(
-                    if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    "Воспроизвести",
-                    tint = textColor,
+                    imageVector = when {
+                        loadError -> Icons.Default.Close
+                        isPlaying -> Icons.Default.Pause
+                        else -> Icons.Default.PlayArrow
+                    },
+                    contentDescription = "Воспроизвести",
+                    tint = if (loadError) MaterialTheme.colorScheme.error else textColor,
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
-                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = if (loadError) MaterialTheme.colorScheme.error else textColor,
+                    trackColor = textColor.copy(alpha = 0.2f),
+                )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    att?.duration?.let { formatDuration(it.toInt()) } ?: "—",
+                    text = if (loadError) "Ошибка загрузки"
+                           else att?.duration?.let { formatDuration(it.toInt()) } ?: "—",
                     fontSize = 10.sp,
-                    color = textColor.copy(alpha = 0.7f),
+                    color = if (loadError) MaterialTheme.colorScheme.error else textColor.copy(alpha = 0.7f),
                 )
             }
         }
