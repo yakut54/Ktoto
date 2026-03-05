@@ -1,7 +1,7 @@
 package ru.yakut54.ktoto.di
 
 import org.koin.android.ext.koin.androidContext
-import org.koin.androidx.viewmodel.dsl.viewModel
+import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 import ru.yakut54.ktoto.data.api.buildApiService
 import ru.yakut54.ktoto.data.store.TokenStore
