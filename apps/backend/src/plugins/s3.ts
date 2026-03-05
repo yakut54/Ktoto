@@ -13,8 +13,12 @@ import { Readable } from 'stream'
 const BUCKET = 'ktoto-media'
 
 export const s3Plugin = fp(async (app: FastifyInstance) => {
+  const internalEndpoint = process.env.MINIO_ENDPOINT ?? 'http://minio:9000'
+  // Public endpoint is used in presigned URLs so Android/clients can download files
+  const publicEndpoint = process.env.MINIO_PUBLIC_ENDPOINT ?? internalEndpoint
+
   const client = new S3Client({
-    endpoint: process.env.MINIO_ENDPOINT ?? 'http://minio:9000',
+    endpoint: internalEndpoint,
     region: 'us-east-1',
     credentials: {
       accessKeyId: process.env.MINIO_ROOT_USER ?? 'ktoto',
@@ -63,11 +67,13 @@ export const s3Plugin = fp(async (app: FastifyInstance) => {
   }
 
   async function presignedUrl(key: string, ttlSeconds = 3600): Promise<string> {
-    return getSignedUrl(
+    const url = await getSignedUrl(
       client,
       new GetObjectCommand({ Bucket: BUCKET, Key: key }),
       { expiresIn: ttlSeconds },
     )
+    // Replace internal endpoint with public endpoint in the URL
+    return url.replace(internalEndpoint, publicEndpoint)
   }
 
   app.decorate('s3', { upload, presignedUrl })
