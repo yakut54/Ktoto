@@ -43,11 +43,12 @@ import ru.yakut54.ktoto.data.model.Conversation
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConversationsScreen(
-    onConversationClick: (Conversation) -> Unit,
+    onConversationClick: (Conversation, userId: String) -> Unit,
     onLogout: () -> Unit,
 ) {
     val vm: ConversationsViewModel = koinViewModel()
     val state by vm.state.collectAsState()
+    val userId by vm.userId.collectAsState()
 
     Scaffold(
         topBar = {
@@ -93,7 +94,7 @@ fun ConversationsScreen(
                             items(s.items, key = { it.id }) { conv ->
                                 ConversationItem(
                                     conversation = conv,
-                                    onClick = { onConversationClick(conv) },
+                                    onClick = { onConversationClick(conv, userId) },
                                 )
                                 HorizontalDivider(Modifier.padding(start = 72.dp))
                             }

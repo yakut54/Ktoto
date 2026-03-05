@@ -4,7 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import ru.yakut54.ktoto.data.api.ApiService
 import ru.yakut54.ktoto.data.model.Conversation
@@ -23,6 +25,8 @@ class ConversationsViewModel(
 
     private val _state = MutableStateFlow<ConversationsState>(ConversationsState.Loading)
     val state: StateFlow<ConversationsState> = _state
+
+    val userId = tokenStore.userId.stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
     init {
         load()
