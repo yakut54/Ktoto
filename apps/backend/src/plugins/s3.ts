@@ -26,12 +26,29 @@ export const s3Plugin = fp(async (app: FastifyInstance) => {
     responseChecksumValidation: 'WHEN_REQUIRED',
   })
 
-  // Ensure bucket exists
-  try {
-    await client.send(new HeadBucketCommand({ Bucket: BUCKET }))
-  } catch {
-    await client.send(new CreateBucketCommand({ Bucket: BUCKET }))
-    app.log.info(`S3 bucket "${BUCKET}" created`)
+  // Ensure bucket exists (retry up to 5 times — MinIO may not be ready instantly)
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      await client.send(new HeadBucketCommand({ Bucket: BUCKET }))
+      app.log.info(`S3 bucket "${BUCKET}" exists`)
+      break
+    } catch (err: unknown) {
+      const code = (err as { Code?: string; name?: string })?.Code ?? (err as { name?: string })?.name
+      if (code === 'NoSuchBucket' || code === 'NotFound' || code === '404') {
+        try {
+          await client.send(new CreateBucketCommand({ Bucket: BUCKET }))
+          app.log.info(`S3 bucket "${BUCKET}" created`)
+          break
+        } catch (createErr) {
+          app.log.warn({ createErr }, 'Failed to create S3 bucket')
+        }
+      } else if (attempt < 5) {
+        app.log.warn({ err, attempt }, 'S3 not ready, retrying in 2s...')
+        await new Promise(r => setTimeout(r, 2000))
+      } else {
+        app.log.error({ err }, 'S3 bucket check failed after 5 attempts — continuing without guarantee')
+      }
+    }
   }
 
   async function upload(key: string, stream: Readable | Buffer, mimeType: string): Promise<void> {
