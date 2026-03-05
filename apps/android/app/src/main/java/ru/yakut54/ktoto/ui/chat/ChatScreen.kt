@@ -214,8 +214,8 @@ fun ChatScreen(
                             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                         )
 
-                        // 📷 Camera — shown only when text field is empty
-                        if (text.isBlank() && !sending) {
+                        // 📷 Camera — shown only when text is blank and NOT recording
+                        if (text.isBlank() && !sending && !isRecording) {
                             IconButton(onClick = ::openCamera) {
                                 Icon(
                                     Icons.Default.PhotoCamera,
@@ -227,7 +227,7 @@ fun ChatScreen(
 
                         Spacer(Modifier.width(2.dp))
 
-                        // Send / Mic
+                        // Send / Mic / Recording-send
                         if (sending) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(48.dp).padding(8.dp),
@@ -242,29 +242,32 @@ fun ChatScreen(
                                 Icon(Icons.AutoMirrored.Filled.Send, "Отправить")
                             }
                         } else {
-                            // 🎤 Mic — long press to record, release to send, swipe left to cancel
+                            // 🎤 Mic (long press) → turns RED + shows ▶ → release = send, swipe left = cancel
+                            // Use Box instead of FilledIconButton to avoid click-handler event conflicts
                             val cancelThresholdPx = with(density) { 80.dp.toPx() }
-                            FilledIconButton(
-                                onClick = {},
+                            val micBg = if (isRecording) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.primary
+                            Box(
                                 modifier = Modifier
                                     .size(48.dp)
+                                    .background(micBg, CircleShape)
                                     .pointerInput(Unit) {
                                         awaitEachGesture {
                                             val down = awaitFirstDown(requireUnconsumed = false)
-                                            // Wait for long press (500ms)
+                                            // Wait for long press
                                             val upBeforeLongPress = withTimeoutOrNull(
                                                 viewConfiguration.longPressTimeoutMillis
                                             ) { waitForUpOrCancellation() }
 
                                             if (upBeforeLongPress == null) {
-                                                // Long press — start recording
+                                                // Long press confirmed — start recording
                                                 permissionLauncher.launch(
                                                     arrayOf(Manifest.permission.RECORD_AUDIO)
                                                 )
                                                 vm.startRecording(context)
                                                 recordingCancelHint = false
 
-                                                // Track pointer until release
+                                                // Track pointer until finger lifts
                                                 var cancelled = false
                                                 while (true) {
                                                     val event = awaitPointerEvent()
@@ -280,8 +283,15 @@ fun ChatScreen(
                                             }
                                         }
                                     },
+                                contentAlignment = Alignment.Center,
                             ) {
-                                Icon(Icons.Default.Mic, "Удержи для записи")
+                                Icon(
+                                    imageVector = if (isRecording) Icons.AutoMirrored.Filled.Send
+                                                  else Icons.Default.Mic,
+                                    contentDescription = if (isRecording) "Отправить голосовое" else "Удержи для записи",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(24.dp),
+                                )
                             }
                         }
                     }
