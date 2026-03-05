@@ -18,6 +18,13 @@ class SocketManager {
     private val _typing = MutableSharedFlow<Pair<String, String>>(extraBufferCapacity = 16)
     val typing = _typing.asSharedFlow()
 
+    private val _editedMessages = MutableSharedFlow<Message>(extraBufferCapacity = 64)
+    val editedMessages = _editedMessages.asSharedFlow()
+
+    /** Pair(msgId, conversationId) */
+    private val _deletedMessageIds = MutableSharedFlow<Pair<String, String>>(extraBufferCapacity = 64)
+    val deletedMessageIds = _deletedMessageIds.asSharedFlow()
+
     fun connect(token: String) {
         if (socket?.connected() == true) return
 
@@ -41,6 +48,21 @@ class SocketManager {
                     val userId = obj["userId"] as? String ?: return@runCatching
                     _typing.tryEmit(convId to userId)
                 }
+            }
+            on("message_edited") { args ->
+                val json = args[0].toString()
+                runCatching { gson.fromJson(json, Message::class.java) }
+                    .onSuccess { _editedMessages.tryEmit(it) }
+                    .onFailure { android.util.Log.e("SocketManager", "message_edited parse error: $json", it) }
+            }
+            on("message_deleted") { args ->
+                runCatching {
+                    val obj = gson.fromJson(args[0].toString(), Map::class.java)
+                    val msgId = obj["id"] as? String ?: return@runCatching
+                    val convId = obj["conversationId"] as? String ?: return@runCatching
+                    _deletedMessageIds.tryEmit(msgId to convId)
+                }
+                    .onFailure { android.util.Log.e("SocketManager", "message_deleted parse error", it) }
             }
             connect()
         }

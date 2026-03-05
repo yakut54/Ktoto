@@ -19,6 +19,7 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import ru.yakut54.ktoto.data.api.ApiService
+import ru.yakut54.ktoto.data.model.EditMessageRequest
 import ru.yakut54.ktoto.data.model.Message
 import ru.yakut54.ktoto.data.model.SendMessageRequest
 import ru.yakut54.ktoto.data.socket.SocketManager
@@ -39,6 +40,15 @@ class ChatViewModel(
 
     private val _sending = MutableStateFlow(false)
     val sending: StateFlow<Boolean> = _sending
+
+    private val _selectedMessage = MutableStateFlow<Message?>(null)
+    val selectedMessage: StateFlow<Message?> = _selectedMessage
+
+    private val _replyTo = MutableStateFlow<Message?>(null)
+    val replyTo: StateFlow<Message?> = _replyTo
+
+    private val _editingMessage = MutableStateFlow<Message?>(null)
+    val editingMessage: StateFlow<Message?> = _editingMessage
 
     private val _isTyping = MutableStateFlow(false)
     val isTyping: StateFlow<Boolean> = _isTyping
@@ -109,21 +119,78 @@ class ChatViewModel(
                     _isTyping.value = false
                 }
         }
+        viewModelScope.launch {
+            socketManager.editedMessages
+                .filter { it.conversationId == conversationId }
+                .collect { edited ->
+                    _messages.value = _messages.value.map { msg ->
+                        if (msg.id == edited.id) msg.copy(content = edited.content, editedAt = edited.editedAt)
+                        else msg
+                    }
+                }
+        }
+        viewModelScope.launch {
+            socketManager.deletedMessageIds
+                .filter { it.second == conversationId }
+                .collect { (msgId, _) ->
+                    _messages.value = _messages.value.filter { it.id != msgId }
+                }
+        }
     }
 
     // ── Text / media messages ──────────────────────────────────────────────────
 
     fun sendMessage(content: String) {
         if (content.isBlank()) return
+        val replyId = _replyTo.value?.id
         viewModelScope.launch {
             _sending.value = true
             runCatching {
                 val token = tokenStore.accessToken.first() ?: return@launch
-                val msg = api.sendMessage("Bearer $token", conversationId, SendMessageRequest(content))
+                val msg = api.sendMessage(
+                    "Bearer $token", conversationId,
+                    SendMessageRequest(content, reply_to_id = replyId),
+                )
                 if (_messages.value.none { it.id == msg.id }) _messages.value = _messages.value + msg
             }
             _sending.value = false
         }
+        _replyTo.value = null
+    }
+
+    fun selectMessage(msg: Message) { _selectedMessage.value = msg }
+    fun clearSelection() { _selectedMessage.value = null }
+
+    fun setReplyTo(msg: Message) { _replyTo.value = msg }
+    fun clearReplyTo() { _replyTo.value = null }
+
+    fun startEditing(msg: Message) { _editingMessage.value = msg }
+    fun cancelEditing() { _editingMessage.value = null }
+
+    fun deleteMessage(msgId: String) {
+        viewModelScope.launch {
+            runCatching {
+                val token = tokenStore.accessToken.first() ?: return@launch
+                api.deleteMessage("Bearer $token", conversationId, msgId)
+                _messages.value = _messages.value.filter { it.id != msgId }
+            }.onFailure { android.util.Log.e("ChatViewModel", "deleteMessage failed", it) }
+        }
+        clearSelection()
+    }
+
+    fun saveEdit(newContent: String) {
+        val msg = _editingMessage.value ?: return
+        if (newContent.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                val token = tokenStore.accessToken.first() ?: return@launch
+                val updated = api.editMessage("Bearer $token", conversationId, msg.id, EditMessageRequest(newContent))
+                _messages.value = _messages.value.map {
+                    if (it.id == updated.id) it.copy(content = updated.content, editedAt = updated.editedAt) else it
+                }
+            }.onFailure { android.util.Log.e("ChatViewModel", "saveEdit failed", it) }
+        }
+        _editingMessage.value = null
     }
 
     fun sendMediaMessage(context: Context, uri: Uri, type: String) {

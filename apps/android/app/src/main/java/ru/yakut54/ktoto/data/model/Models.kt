@@ -65,7 +65,13 @@ data class Sender(
     val avatarUrl: String?,
 )
 
-data class SendMessageRequest(val content: String, val type: String = "text")
+data class SendMessageRequest(
+    val content: String,
+    val type: String = "text",
+    val reply_to_id: String? = null,
+)
+
+data class EditMessageRequest(val content: String)
 
 data class UserItem(val id: String, val username: String, val avatarUrl: String?)
 

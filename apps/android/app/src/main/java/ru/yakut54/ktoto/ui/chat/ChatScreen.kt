@@ -8,7 +8,9 @@ import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -48,9 +50,14 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -80,6 +87,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -96,7 +105,7 @@ import ru.yakut54.ktoto.data.model.Attachment
 import ru.yakut54.ktoto.data.model.Message
 import ru.yakut54.ktoto.utils.formatMessageTime
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(
     conversationId: String,
@@ -113,9 +122,13 @@ fun ChatScreen(
     val previewDuration by vm.previewDuration.collectAsState()
     val previewPlaying by vm.previewPlaying.collectAsState()
     val previewProgress by vm.previewProgress.collectAsState()
+    val selectedMessage by vm.selectedMessage.collectAsState()
+    val replyTo by vm.replyTo.collectAsState()
+    val editingMessage by vm.editingMessage.collectAsState()
 
     val context = LocalContext.current
     val density = LocalDensity.current
+    val clipboard = LocalClipboardManager.current
 
     LaunchedEffect(conversationId) { vm.init(conversationId) }
 
@@ -124,9 +137,15 @@ fun ChatScreen(
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
     }
 
+    // Sync edit mode: populate text field with message content
     var text by remember { mutableStateOf("") }
+    LaunchedEffect(editingMessage) {
+        if (editingMessage != null) text = editingMessage!!.content ?: ""
+    }
+
     var showAttachSheet by remember { mutableStateOf(false) }
     var recordingCancelHint by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf<String?>(null) }
 
     // Reset cancel hint when leaving RECORDING state
     LaunchedEffect(voiceState) {
@@ -202,11 +221,92 @@ fun ChatScreen(
                         val cancelThresholdPx = with(density) { 80.dp.toPx() }
                         val lockThresholdPx = with(density) { 80.dp.toPx() }
 
-                        Box(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .navigationBarsPadding()
                                 .imePadding(),
+                        ) {
+                            // ── Reply / Edit bar ───────────────────────────────────────
+                            when {
+                                editingMessage != null -> {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(MaterialTheme.colorScheme.secondaryContainer)
+                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Edit,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                "Редактирование",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.primary,
+                                            )
+                                            Text(
+                                                editingMessage!!.content ?: "",
+                                                fontSize = 12.sp,
+                                                maxLines = 1,
+                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            )
+                                        }
+                                        IconButton(onClick = { vm.cancelEditing(); text = "" }) {
+                                            Icon(Icons.Default.Close, "Отмена")
+                                        }
+                                    }
+                                }
+                                replyTo != null -> {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(MaterialTheme.colorScheme.secondaryContainer)
+                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.Reply,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                replyTo!!.sender.username,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.primary,
+                                            )
+                                            val preview = when (replyTo!!.type) {
+                                                "image" -> "📷 Фото"
+                                                "voice" -> "🎤 Голосовое"
+                                                "file" -> "📎 Файл"
+                                                else -> replyTo!!.content ?: ""
+                                            }
+                                            Text(
+                                                preview,
+                                                fontSize = 12.sp,
+                                                maxLines = 1,
+                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            )
+                                        }
+                                        IconButton(onClick = { vm.clearReplyTo() }) {
+                                            Icon(Icons.Default.Close, "Закрыть")
+                                        }
+                                    }
+                                }
+                            }
+
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
                             // ── Input row ──────────────────────────────────────────────
                             Row(
@@ -215,13 +315,15 @@ fun ChatScreen(
                                     .padding(start = 4.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
                                 verticalAlignment = Alignment.Bottom,
                             ) {
-                                // 📎 Attach
-                                IconButton(onClick = { showAttachSheet = true }) {
-                                    Icon(
-                                        Icons.Default.AttachFile,
-                                        contentDescription = "Прикрепить",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
+                                // 📎 Attach (hidden in edit mode)
+                                if (editingMessage == null) {
+                                    IconButton(onClick = { showAttachSheet = true }) {
+                                        Icon(
+                                            Icons.Default.AttachFile,
+                                            contentDescription = "Прикрепить",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
                                 }
 
                                 // Text field
@@ -246,8 +348,8 @@ fun ChatScreen(
                                     ),
                                 )
 
-                                // 📷 Camera — only when idle + text blank
-                                if (text.isBlank() && !sending && voiceState == VoiceState.IDLE) {
+                                // 📷 Camera — only when idle + text blank + not editing
+                                if (text.isBlank() && !sending && voiceState == VoiceState.IDLE && editingMessage == null) {
                                     IconButton(onClick = ::openCamera) {
                                         Icon(
                                             Icons.Default.PhotoCamera,
@@ -265,6 +367,15 @@ fun ChatScreen(
                                         modifier = Modifier.size(48.dp).padding(8.dp),
                                         strokeWidth = 3.dp,
                                     )
+
+                                    editingMessage != null && text.isNotBlank() -> {
+                                        FilledIconButton(
+                                            onClick = { vm.saveEdit(text); text = "" },
+                                            modifier = Modifier.size(48.dp),
+                                        ) {
+                                            Icon(Icons.Default.Edit, "Сохранить")
+                                        }
+                                    }
 
                                     text.isNotBlank() && voiceState == VoiceState.IDLE -> {
                                         // ▶ Send text
@@ -418,7 +529,8 @@ fun ChatScreen(
                                     )
                                 }
                             }
-                        }
+                        } // end Box
+                        } // end Column
                     }
                 }
             }
@@ -433,7 +545,102 @@ fun ChatScreen(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             items(messages, key = { it.id }) { msg ->
-                MessageBubble(msg, isMine = msg.sender.id == currentUserId)
+                val isSelected = selectedMessage?.id == msg.id
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (isSelected) Modifier.background(
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            ) else Modifier
+                        )
+                        .combinedClickable(
+                            onClick = {},
+                            onLongClick = { vm.selectMessage(msg) },
+                        ),
+                ) {
+                    MessageBubble(
+                        message = msg,
+                        isMine = msg.sender.id == currentUserId,
+                        allMessages = messages,
+                    )
+                }
+            }
+        }
+    }
+
+    // Delete confirmation dialog
+    if (showDeleteConfirm != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = null },
+            title = { Text("Удалить сообщение?") },
+            text = { Text("Сообщение будет удалено у всех участников.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteMessage(showDeleteConfirm!!)
+                    showDeleteConfirm = null
+                }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = null }) { Text("Отмена") }
+            },
+        )
+    }
+
+    // Message action bottom sheet
+    if (selectedMessage != null) {
+        val msg = selectedMessage!!
+        val isMine = msg.sender.id == currentUserId
+        val sheetState = rememberModalBottomSheetState()
+        ModalBottomSheet(
+            onDismissRequest = { vm.clearSelection() },
+            sheetState = sheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() },
+        ) {
+            Column(modifier = Modifier.padding(bottom = 32.dp)) {
+                // Reply — always
+                AttachOption(
+                    icon = { Icon(Icons.AutoMirrored.Filled.Reply, null) },
+                    label = "Ответить",
+                    onClick = {
+                        vm.setReplyTo(msg)
+                        vm.clearSelection()
+                    },
+                )
+                // Copy — text only
+                if (msg.type == "text" && !msg.content.isNullOrBlank()) {
+                    AttachOption(
+                        icon = { Icon(Icons.Default.ContentCopy, null) },
+                        label = "Копировать",
+                        onClick = {
+                            clipboard.setText(AnnotatedString(msg.content))
+                            vm.clearSelection()
+                        },
+                    )
+                }
+                // Edit — own text only
+                if (isMine && msg.type == "text") {
+                    AttachOption(
+                        icon = { Icon(Icons.Default.Edit, null) },
+                        label = "Редактировать",
+                        onClick = {
+                            vm.startEditing(msg)
+                            vm.clearSelection()
+                        },
+                    )
+                }
+                // Delete — own messages only
+                if (isMine) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    AttachOption(
+                        icon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                        label = "Удалить",
+                        onClick = {
+                            showDeleteConfirm = msg.id
+                            vm.clearSelection()
+                        },
+                    )
+                }
             }
         }
     }
@@ -610,11 +817,13 @@ private fun AttachOption(icon: @Composable () -> Unit, label: String, onClick: (
 // ── Message bubbles ────────────────────────────────────────────────────────────
 
 @Composable
-private fun MessageBubble(message: Message, isMine: Boolean) {
+private fun MessageBubble(message: Message, isMine: Boolean, allMessages: List<Message> = emptyList()) {
     val bubbleColor = if (isMine) MaterialTheme.colorScheme.primary
                       else MaterialTheme.colorScheme.surfaceVariant
     val textColor = if (isMine) MaterialTheme.colorScheme.onPrimary
                     else MaterialTheme.colorScheme.onSurfaceVariant
+
+    val replyOrigin = if (message.replyToId != null) allMessages.find { it.id == message.replyToId } else null
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -636,6 +845,40 @@ private fun MessageBubble(message: Message, isMine: Boolean) {
                     else Modifier
                 ),
         ) {
+            // ── Reply quote block ──────────────────────────────────────
+            if (replyOrigin != null) {
+                val quotePreview = when (replyOrigin.type) {
+                    "image" -> "📷 Фото"
+                    "voice" -> "🎤 Голосовое"
+                    "file" -> "📎 Файл"
+                    else -> replyOrigin.content ?: ""
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            textColor.copy(alpha = 0.15f),
+                            RoundedCornerShape(6.dp),
+                        )
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .padding(bottom = 4.dp),
+                ) {
+                    Text(
+                        text = replyOrigin.sender.username,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = quotePreview,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        color = textColor.copy(alpha = 0.8f),
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+            }
+
             if (!isMine && message.type != "image") {
                 Text(
                     text = message.sender.username,
@@ -652,12 +895,24 @@ private fun MessageBubble(message: Message, isMine: Boolean) {
                 "file"  -> FileBubble(message, isMine, textColor)
                 else -> {
                     Text(text = message.content ?: "", color = textColor)
-                    Text(
-                        text = formatMessageTime(message.createdAt),
-                        fontSize = 10.sp,
-                        color = textColor.copy(alpha = 0.6f),
+                    Row(
                         modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
-                    )
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        if (message.editedAt != null) {
+                            Text(
+                                text = "ред.",
+                                fontSize = 10.sp,
+                                color = textColor.copy(alpha = 0.5f),
+                            )
+                        }
+                        Text(
+                            text = formatMessageTime(message.createdAt),
+                            fontSize = 10.sp,
+                            color = textColor.copy(alpha = 0.6f),
+                        )
+                    }
                 }
             }
         }

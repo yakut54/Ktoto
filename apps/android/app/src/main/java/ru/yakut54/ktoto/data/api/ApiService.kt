@@ -8,8 +8,10 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.HTTP
 import retrofit2.http.Header
 import retrofit2.http.Multipart
+import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Part
 import retrofit2.http.Path
@@ -17,6 +19,7 @@ import retrofit2.http.Query
 import ru.yakut54.ktoto.data.model.AuthResponse
 import ru.yakut54.ktoto.data.model.Conversation
 import ru.yakut54.ktoto.data.model.CreateConversationRequest
+import ru.yakut54.ktoto.data.model.EditMessageRequest
 import ru.yakut54.ktoto.data.model.LoginRequest
 import ru.yakut54.ktoto.data.model.Message
 import ru.yakut54.ktoto.data.model.RegisterRequest
@@ -70,6 +73,21 @@ interface ApiService {
         @Part file: MultipartBody.Part,
         @Part("meta") meta: RequestBody,
     ): Message
+
+    @PATCH("api/conversations/{convId}/messages/{msgId}")
+    suspend fun editMessage(
+        @Header("Authorization") token: String,
+        @Path("convId") conversationId: String,
+        @Path("msgId") messageId: String,
+        @Body body: EditMessageRequest,
+    ): Message
+
+    @HTTP(method = "DELETE", path = "api/conversations/{convId}/messages/{msgId}", hasBody = false)
+    suspend fun deleteMessage(
+        @Header("Authorization") token: String,
+        @Path("convId") conversationId: String,
+        @Path("msgId") messageId: String,
+    )
 }
 
 fun buildApiService(baseUrl: String, tokenStore: TokenStore): ApiService {

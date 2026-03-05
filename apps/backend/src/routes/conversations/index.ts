@@ -21,6 +21,15 @@ interface MessageParams {
   id: string
 }
 
+interface EditMessageParams {
+  id: string
+  msgId: string
+}
+
+interface EditMessageBody {
+  content: string
+}
+
 interface MessagesQuery {
   limit?: number
   before?: string // message UUID cursor
@@ -489,6 +498,84 @@ export async function conversationRoutes(app: FastifyInstance) {
         reply.status(201)
         return payload
       }
+    },
+  )
+
+  // ----------------------------------------------------------------
+  // PATCH /api/conversations/:id/messages/:msgId  — edit message text
+  // ----------------------------------------------------------------
+  app.patch<{ Params: EditMessageParams; Body: EditMessageBody }>(
+    '/:id/messages/:msgId',
+    async (request, reply) => {
+      const { userId } = request.user
+      const { id: convId, msgId } = request.params
+      const { content } = request.body
+
+      if (!content?.trim()) return reply.status(400).send({ error: 'content required' })
+
+      // Check message exists, belongs to user, and is text type
+      const msgCheck = await app.pg.query<{
+        user_id: string; type: string
+      }>(
+        `SELECT user_id, type FROM messages WHERE id=$1 AND conversation_id=$2 AND deleted_at IS NULL`,
+        [msgId, convId],
+      )
+      if (!msgCheck.rows[0]) return reply.status(404).send({ error: 'Message not found' })
+      if (msgCheck.rows[0].user_id !== userId) return reply.status(403).send({ error: 'Forbidden' })
+      if (msgCheck.rows[0].type !== 'text') return reply.status(400).send({ error: 'Only text messages can be edited' })
+
+      const { rows } = await app.pg.query<{ id: string; content: string; edited_at: string }>(
+        `UPDATE messages SET content=$1, edited_at=NOW() WHERE id=$2 RETURNING id, content, edited_at`,
+        [content.trim(), msgId],
+      )
+      const updated = rows[0]
+
+      const payload = {
+        id: updated.id,
+        content: updated.content,
+        editedAt: updated.edited_at,
+        conversationId: convId,
+      }
+
+      const participants = await app.pg.query<{ user_id: string }>(
+        `SELECT user_id FROM conversation_participants WHERE conversation_id=$1`, [convId],
+      )
+      for (const p of participants.rows) {
+        app.io.to(`user:${p.user_id}`).emit('message_edited', payload)
+      }
+
+      return payload
+    },
+  )
+
+  // ----------------------------------------------------------------
+  // DELETE /api/conversations/:id/messages/:msgId  — soft-delete
+  // ----------------------------------------------------------------
+  app.delete<{ Params: EditMessageParams }>(
+    '/:id/messages/:msgId',
+    async (request, reply) => {
+      const { userId } = request.user
+      const { id: convId, msgId } = request.params
+
+      const msgCheck = await app.pg.query<{ user_id: string }>(
+        `SELECT user_id FROM messages WHERE id=$1 AND conversation_id=$2 AND deleted_at IS NULL`,
+        [msgId, convId],
+      )
+      if (!msgCheck.rows[0]) return reply.status(404).send({ error: 'Message not found' })
+      if (msgCheck.rows[0].user_id !== userId) return reply.status(403).send({ error: 'Forbidden' })
+
+      await app.pg.query(`UPDATE messages SET deleted_at=NOW() WHERE id=$1`, [msgId])
+
+      const payload = { id: msgId, conversationId: convId }
+
+      const participants = await app.pg.query<{ user_id: string }>(
+        `SELECT user_id FROM conversation_participants WHERE conversation_id=$1`, [convId],
+      )
+      for (const p of participants.rows) {
+        app.io.to(`user:${p.user_id}`).emit('message_deleted', payload)
+      }
+
+      reply.status(204)
     },
   )
 }
