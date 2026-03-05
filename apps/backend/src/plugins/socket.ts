@@ -35,6 +35,17 @@ export const socketPlugin = fp(async (app: FastifyInstance) => {
     // Personal room — for delivering messages to a specific user
     socket.join(`user:${userId}`)
 
+    // typing: { conversationId } → broadcast to other participants
+    socket.on('typing', async ({ conversationId }: { conversationId: string }) => {
+      const { rows } = await app.pg.query<{ user_id: string }>(
+        `SELECT user_id FROM conversation_participants WHERE conversation_id=$1 AND user_id!=$2`,
+        [conversationId, userId],
+      )
+      for (const p of rows) {
+        app.io.to(`user:${p.user_id}`).emit('typing', { conversationId, userId })
+      }
+    })
+
     socket.on('disconnect', (reason) => {
       app.log.info({ userId, reason }, 'Socket disconnected')
     })

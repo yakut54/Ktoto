@@ -283,6 +283,15 @@ export async function conversationRoutes(app: FastifyInstance) {
         conversationId: convId,
       }
 
+      // Deliver in real time to every participant
+      const participants = await app.pg.query<{ user_id: string }>(
+        `SELECT user_id FROM conversation_participants WHERE conversation_id=$1`,
+        [convId],
+      )
+      for (const p of participants.rows) {
+        app.io.to(`user:${p.user_id}`).emit('new_message', payload)
+      }
+
       reply.status(201)
       return payload
     },
