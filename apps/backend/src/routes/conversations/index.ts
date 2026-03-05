@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { pushToUser } from '../../services/push.service.js'
 
 interface CreateConversationBody {
   type: 'direct' | 'group'
@@ -283,13 +284,21 @@ export async function conversationRoutes(app: FastifyInstance) {
         conversationId: convId,
       }
 
-      // Deliver in real time to every participant
+      // Deliver in real time + push notification to every participant
       const participants = await app.pg.query<{ user_id: string }>(
         `SELECT user_id FROM conversation_participants WHERE conversation_id=$1`,
         [convId],
       )
       for (const p of participants.rows) {
         app.io.to(`user:${p.user_id}`).emit('new_message', payload)
+        // Push only to others (not the sender)
+        if (p.user_id !== userId) {
+          pushToUser(
+            p.user_id,
+            userRow.rows[0].username,
+            payload.content,
+          )
+        }
       }
 
       reply.status(201)

@@ -57,9 +57,36 @@ services:
     networks:
       - ktoto_net
 
+  ntfy:
+    image: binwiederhier/ntfy:latest
+    container_name: ktoto_ntfy
+    restart: unless-stopped
+    command: serve
+    environment:
+      NTFY_BASE_URL: http://31.128.39.216:2586
+      NTFY_LISTEN_HTTP: ":80"
+      NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
+      NTFY_AUTH_FILE: /var/lib/ntfy/user.db
+      NTFY_AUTH_DEFAULT_ACCESS: deny-all
+      NTFY_BEHIND_PROXY: "true"
+    volumes:
+      - ktoto_ntfy_cache:/var/cache/ntfy
+      - ktoto_ntfy_data:/var/lib/ntfy
+    ports:
+      - "2586:80"
+    networks:
+      - ktoto_net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 volumes:
   ktoto_pgdata:
   ktoto_redis:
+  ktoto_ntfy_cache:
+  ktoto_ntfy_data:
 
 networks:
   ktoto_net:
