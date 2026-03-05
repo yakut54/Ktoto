@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import ru.yakut54.ktoto.data.api.ApiService
+import ru.yakut54.ktoto.data.api.toRussianMessage
 import ru.yakut54.ktoto.data.model.LoginRequest
 import ru.yakut54.ktoto.data.model.RegisterRequest
 import ru.yakut54.ktoto.data.store.TokenStore
@@ -38,7 +39,7 @@ class AuthViewModel(
                 )
                 _state.value = AuthState.Success
             } catch (e: Exception) {
-                _state.value = AuthState.Error(e.message ?: "Login failed")
+                _state.value = AuthState.Error(e.toRussianMessage())
             }
         }
     }
@@ -56,7 +57,7 @@ class AuthViewModel(
                 )
                 _state.value = AuthState.Success
             } catch (e: Exception) {
-                _state.value = AuthState.Error(e.message ?: "Registration failed")
+                _state.value = AuthState.Error(e.toRussianMessage())
             }
         }
     }

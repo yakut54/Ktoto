@@ -51,7 +51,7 @@ export class AuthService {
   }
 
   async login(data: {
-    email: string
+    username: string
     password: string
   }): Promise<User> {
     const client = await this.app.pg.connect()
@@ -59,8 +59,8 @@ export class AuthService {
     try {
       const result: QueryResult<UserWithPassword> = await client.query(
         `SELECT id, username, email, avatar_url, created_at, password_hash
-         FROM users WHERE email = $1 LIMIT 1`,
-        [data.email.toLowerCase()]
+         FROM users WHERE username = $1 LIMIT 1`,
+        [data.username.toLowerCase()]
       )
 
       if (result.rows.length === 0) {

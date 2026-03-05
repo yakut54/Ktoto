@@ -4,6 +4,8 @@ data class LoginRequest(val username: String, val password: String)
 
 data class RegisterRequest(val username: String, val email: String, val password: String)
 
+data class ErrorResponse(val error: String?)
+
 data class AuthResponse(
     val accessToken: String,
     val refreshToken: String,
