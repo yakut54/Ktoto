@@ -1,5 +1,8 @@
 import type { FastifyInstance } from 'fastify'
+import { v4 as uuidv4 } from 'uuid'
+import sharp from 'sharp'
 import { pushToUser } from '../../services/push.service.js'
+import { Readable } from 'stream'
 
 interface CreateConversationBody {
   type: 'direct' | 'group'
@@ -9,7 +12,7 @@ interface CreateConversationBody {
 }
 
 interface SendMessageBody {
-  content: string
+  content?: string
   type?: 'text'
   reply_to_id?: string
 }
@@ -21,6 +24,14 @@ interface MessageParams {
 interface MessagesQuery {
   limit?: number
   before?: string // message UUID cursor
+}
+
+async function streamToBuffer(stream: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = []
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  }
+  return Buffer.concat(chunks)
 }
 
 export async function conversationRoutes(app: FastifyInstance) {
@@ -201,12 +212,29 @@ export async function conversationRoutes(app: FastifyInstance) {
         user_id: string
         username: string
         avatar_url: string | null
+        att_id: string | null
+        att_file_name: string | null
+        att_file_size: string | null
+        att_mime_type: string | null
+        att_file_type: string | null
+        att_s3_key: string | null
+        att_thumb_key: string | null
+        att_duration: string | null
+        att_width: number | null
+        att_height: number | null
       }>(
         `SELECT
            m.id, m.content, m.type, m.created_at, m.edited_at, m.reply_to_id,
-           u.id AS user_id, u.username, u.avatar_url
+           u.id AS user_id, u.username, u.avatar_url,
+           fa.id AS att_id, fa.file_name AS att_file_name,
+           fa.file_size_bytes AS att_file_size, fa.mime_type AS att_mime_type,
+           fa.file_type AS att_file_type, fa.s3_key AS att_s3_key,
+           fa.thumbnail_s3_key AS att_thumb_key,
+           fa.duration_seconds AS att_duration,
+           fa.image_width AS att_width, fa.image_height AS att_height
          FROM messages m
          JOIN users u ON u.id = m.user_id
+         LEFT JOIN file_attachments fa ON fa.message_id = m.id
          WHERE m.conversation_id = $1
            AND m.deleted_at IS NULL
            AND ($3::uuid IS NULL OR m.created_at < (
@@ -224,29 +252,48 @@ export async function conversationRoutes(app: FastifyInstance) {
         [convId, userId],
       )
 
-      return rows.reverse().map((r) => ({
-        id: r.id,
-        content: r.content,
-        type: r.type,
-        createdAt: r.created_at,
-        editedAt: r.edited_at,
-        replyToId: r.reply_to_id,
-        sender: { id: r.user_id, username: r.username, avatarUrl: r.avatar_url },
-      }))
+      const result = await Promise.all(
+        rows.reverse().map(async (r) => {
+          let attachment = null
+          if (r.att_id) {
+            const url = await app.s3.presignedUrl(r.att_s3_key!)
+            const thumbnailUrl = r.att_thumb_key ? await app.s3.presignedUrl(r.att_thumb_key) : null
+            attachment = {
+              fileName: r.att_file_name,
+              fileSize: r.att_file_size ? Number(r.att_file_size) : null,
+              mimeType: r.att_mime_type,
+              url,
+              thumbnailUrl,
+              duration: r.att_duration ? Number(r.att_duration) : null,
+              width: r.att_width,
+              height: r.att_height,
+            }
+          }
+          return {
+            id: r.id,
+            content: r.content,
+            type: r.type,
+            createdAt: r.created_at,
+            editedAt: r.edited_at,
+            replyToId: r.reply_to_id,
+            sender: { id: r.user_id, username: r.username, avatarUrl: r.avatar_url },
+            attachment,
+          }
+        }),
+      )
+
+      return result
     },
   )
 
   // ----------------------------------------------------------------
-  // POST /api/conversations/:id/messages  — send a message
+  // POST /api/conversations/:id/messages  — send a message (text or media)
   // ----------------------------------------------------------------
-  app.post<{ Params: MessageParams; Body: SendMessageBody }>(
+  app.post<{ Params: MessageParams }>(
     '/:id/messages',
     async (request, reply) => {
       const { userId } = request.user
       const { id: convId } = request.params
-      const { content, type = 'text', reply_to_id } = request.body
-
-      if (!content?.trim()) return reply.status(400).send({ error: 'content required' })
 
       // access check
       const access = await app.pg.query(
@@ -255,62 +302,192 @@ export async function conversationRoutes(app: FastifyInstance) {
       )
       if (!access.rows[0]) return reply.status(403).send({ error: 'Forbidden' })
 
-      const { rows } = await app.pg.query<{
-        id: string
-        content: string
-        type: string
-        created_at: string
-        reply_to_id: string | null
-      }>(
-        `INSERT INTO messages (conversation_id, user_id, type, content, reply_to_id)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, content, type, created_at, reply_to_id`,
-        [convId, userId, type, content.trim(), reply_to_id ?? null],
-      )
+      let content: string | null = null
+      let msgType = 'text'
+      let replyToId: string | null = null
+      let attachment: {
+        fileName: string
+        fileSize: number
+        mimeType: string
+        url: string
+        thumbnailUrl: string | null
+        duration: number | null
+        width: number | null
+        height: number | null
+      } | null = null
 
-      const msg = rows[0]
+      const contentType = request.headers['content-type'] ?? ''
 
-      // Update conversation timestamp
-      await app.pg.query(`UPDATE conversations SET updated_at=NOW() WHERE id=$1`, [convId])
+      if (contentType.includes('multipart/form-data')) {
+        // --- multipart upload ---
+        const parts = request.parts()
+        let fileBuffer: Buffer | null = null
+        let fileName = 'file'
+        let mimeType = 'application/octet-stream'
+        let duration: number | null = null
 
-      const userRow = await app.pg.query<{ username: string; avatar_url: string | null }>(
-        `SELECT username, avatar_url FROM users WHERE id=$1`,
-        [userId],
-      )
-
-      const payload = {
-        id: msg.id,
-        content: msg.content,
-        type: msg.type,
-        createdAt: msg.created_at,
-        replyToId: msg.reply_to_id,
-        sender: {
-          id: userId,
-          username: userRow.rows[0].username,
-          avatarUrl: userRow.rows[0].avatar_url,
-        },
-        conversationId: convId,
-      }
-
-      // Deliver in real time + push notification to every participant
-      const participants = await app.pg.query<{ user_id: string }>(
-        `SELECT user_id FROM conversation_participants WHERE conversation_id=$1`,
-        [convId],
-      )
-      for (const p of participants.rows) {
-        app.io.to(`user:${p.user_id}`).emit('new_message', payload)
-        // Push only to others (not the sender)
-        if (p.user_id !== userId) {
-          pushToUser(
-            p.user_id,
-            userRow.rows[0].username,
-            payload.content,
-          )
+        for await (const part of parts) {
+          if (part.type === 'file') {
+            fileName = part.filename || 'file'
+            mimeType = part.mimetype || 'application/octet-stream'
+            fileBuffer = await streamToBuffer(part.file)
+          } else if (part.type === 'field' && part.fieldname === 'meta') {
+            try {
+              const meta = JSON.parse(part.value as string)
+              content = meta.content ?? null
+              msgType = meta.type ?? 'file'
+              replyToId = meta.reply_to_id ?? null
+              duration = meta.duration ?? null
+            } catch {
+              // ignore parse errors
+            }
+          }
         }
-      }
 
-      reply.status(201)
-      return payload
+        if (!fileBuffer) return reply.status(400).send({ error: 'file required' })
+
+        const ext = fileName.split('.').pop() ?? 'bin'
+        const s3Key = `${convId}/${uuidv4()}.${ext}`
+        await app.s3.upload(s3Key, fileBuffer, mimeType)
+
+        let thumbKey: string | null = null
+        let width: number | null = null
+        let height: number | null = null
+
+        // Generate thumbnail for images
+        if (msgType === 'image' || mimeType.startsWith('image/')) {
+          msgType = 'image'
+          try {
+            const img = sharp(fileBuffer)
+            const meta = await img.metadata()
+            width = meta.width ?? null
+            height = meta.height ?? null
+            const thumbBuffer = await img
+              .resize({ width: 320, withoutEnlargement: true })
+              .jpeg({ quality: 80 })
+              .toBuffer()
+            thumbKey = `${s3Key}_thumb.jpg`
+            await app.s3.upload(thumbKey, thumbBuffer, 'image/jpeg')
+          } catch (err) {
+            app.log.warn({ err }, 'Failed to generate thumbnail')
+          }
+        }
+
+        // Insert message
+        const { rows: msgRows } = await app.pg.query<{
+          id: string; created_at: string; reply_to_id: string | null
+        }>(
+          `INSERT INTO messages (conversation_id, user_id, type, content, reply_to_id)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING id, created_at, reply_to_id`,
+          [convId, userId, msgType, content, replyToId],
+        )
+        const msg = msgRows[0]
+
+        // Insert file_attachment
+        await app.pg.query(
+          `INSERT INTO file_attachments
+             (message_id, file_name, file_size_bytes, mime_type, file_type,
+              s3_key, thumbnail_s3_key, duration_seconds, image_width, image_height)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [
+            msg.id, fileName, fileBuffer.byteLength, mimeType, msgType,
+            s3Key, thumbKey, duration, width, height,
+          ],
+        )
+
+        const url = await app.s3.presignedUrl(s3Key)
+        const thumbnailUrl = thumbKey ? await app.s3.presignedUrl(thumbKey) : null
+
+        attachment = { fileName, fileSize: fileBuffer.byteLength, mimeType, url, thumbnailUrl, duration, width, height }
+
+        await app.pg.query(`UPDATE conversations SET updated_at=NOW() WHERE id=$1`, [convId])
+
+        const userRow = await app.pg.query<{ username: string; avatar_url: string | null }>(
+          `SELECT username, avatar_url FROM users WHERE id=$1`, [userId],
+        )
+
+        const payload = {
+          id: msg.id,
+          content,
+          type: msgType,
+          createdAt: msg.created_at,
+          replyToId: msg.reply_to_id,
+          sender: { id: userId, username: userRow.rows[0].username, avatarUrl: userRow.rows[0].avatar_url },
+          conversationId: convId,
+          attachment,
+        }
+
+        const participants = await app.pg.query<{ user_id: string }>(
+          `SELECT user_id FROM conversation_participants WHERE conversation_id=$1`, [convId],
+        )
+        for (const p of participants.rows) {
+          app.io.to(`user:${p.user_id}`).emit('new_message', payload)
+          if (p.user_id !== userId) {
+            const previewContent = msgType === 'image' ? '📷 Фото' :
+                                   msgType === 'voice' ? '🎤 Голосовое' :
+                                   msgType === 'video' ? '🎬 Видео' : '📎 Файл'
+            pushToUser(p.user_id, userRow.rows[0].username, previewContent)
+          }
+        }
+
+        reply.status(201)
+        return payload
+
+      } else {
+        // --- regular JSON text message ---
+        const body = request.body as SendMessageBody
+        content = body.content ?? null
+        msgType = body.type ?? 'text'
+        replyToId = body.reply_to_id ?? null
+
+        if (!content?.trim()) return reply.status(400).send({ error: 'content required' })
+
+        const { rows } = await app.pg.query<{
+          id: string
+          content: string
+          type: string
+          created_at: string
+          reply_to_id: string | null
+        }>(
+          `INSERT INTO messages (conversation_id, user_id, type, content, reply_to_id)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING id, content, type, created_at, reply_to_id`,
+          [convId, userId, msgType, content.trim(), replyToId],
+        )
+
+        const msg = rows[0]
+
+        await app.pg.query(`UPDATE conversations SET updated_at=NOW() WHERE id=$1`, [convId])
+
+        const userRow = await app.pg.query<{ username: string; avatar_url: string | null }>(
+          `SELECT username, avatar_url FROM users WHERE id=$1`, [userId],
+        )
+
+        const payload = {
+          id: msg.id,
+          content: msg.content,
+          type: msg.type,
+          createdAt: msg.created_at,
+          replyToId: msg.reply_to_id,
+          sender: { id: userId, username: userRow.rows[0].username, avatarUrl: userRow.rows[0].avatar_url },
+          conversationId: convId,
+          attachment: null,
+        }
+
+        const participants = await app.pg.query<{ user_id: string }>(
+          `SELECT user_id FROM conversation_participants WHERE conversation_id=$1`, [convId],
+        )
+        for (const p of participants.rows) {
+          app.io.to(`user:${p.user_id}`).emit('new_message', payload)
+          if (p.user_id !== userId) {
+            pushToUser(p.user_id, userRow.rows[0].username, payload.content)
+          }
+        }
+
+        reply.status(201)
+        return payload
+      }
     },
   )
 }

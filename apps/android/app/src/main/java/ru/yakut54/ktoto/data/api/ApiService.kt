@@ -4,10 +4,14 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
+import retrofit2.http.Multipart
 import retrofit2.http.POST
+import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
 import ru.yakut54.ktoto.data.model.AuthResponse
@@ -18,6 +22,7 @@ import ru.yakut54.ktoto.data.model.Message
 import ru.yakut54.ktoto.data.model.RegisterRequest
 import ru.yakut54.ktoto.data.model.SendMessageRequest
 import ru.yakut54.ktoto.data.model.UserItem
+import ru.yakut54.ktoto.data.store.TokenStore
 
 interface ApiService {
 
@@ -56,14 +61,24 @@ interface ApiService {
         @Path("id") conversationId: String,
         @Body body: SendMessageRequest,
     ): Message
+
+    @Multipart
+    @POST("api/conversations/{id}/messages")
+    suspend fun uploadMessage(
+        @Header("Authorization") token: String,
+        @Path("id") conversationId: String,
+        @Part file: MultipartBody.Part,
+        @Part("meta") meta: RequestBody,
+    ): Message
 }
 
-fun buildApiService(baseUrl: String): ApiService {
+fun buildApiService(baseUrl: String, tokenStore: TokenStore): ApiService {
     val logging = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BODY
     }
     val client = OkHttpClient.Builder()
         .addInterceptor(logging)
+        .authenticator(TokenAuthenticator(tokenStore, baseUrl))
         .build()
 
     return Retrofit.Builder()

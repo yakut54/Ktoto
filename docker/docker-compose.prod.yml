@@ -82,11 +82,34 @@ services:
       timeout: 10s
       retries: 3
 
+  minio:
+    image: minio/minio:latest
+    container_name: ktoto_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ktoto
+      MINIO_ROOT_PASSWORD: ktoto-minio-2026
+    volumes:
+      - ktoto_minio:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - ktoto_net
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
 volumes:
   ktoto_pgdata:
   ktoto_redis:
   ktoto_ntfy_cache:
   ktoto_ntfy_data:
+  ktoto_minio:
 
 networks:
   ktoto_net:

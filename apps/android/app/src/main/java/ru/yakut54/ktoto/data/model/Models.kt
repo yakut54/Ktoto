@@ -36,6 +36,17 @@ data class LastMessage(
     val userId: String?,
 )
 
+data class Attachment(
+    val fileName: String,
+    val fileSize: Long?,
+    val mimeType: String?,
+    val url: String,
+    val thumbnailUrl: String?,
+    val duration: Float?,
+    val width: Int?,
+    val height: Int?,
+)
+
 data class Message(
     val id: String,
     val content: String?,
@@ -45,6 +56,7 @@ data class Message(
     val replyToId: String?,
     val sender: Sender,
     val conversationId: String,
+    val attachment: Attachment? = null,
 )
 
 data class Sender(
@@ -63,3 +75,5 @@ data class CreateConversationRequest(
     val name: String? = null,
     val memberIds: List<String>? = null,
 )
+
+data class RefreshResponse(val accessToken: String, val refreshToken: String)
