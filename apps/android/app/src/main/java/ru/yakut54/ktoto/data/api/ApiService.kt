@@ -17,6 +17,7 @@ import ru.yakut54.ktoto.data.model.LoginRequest
 import ru.yakut54.ktoto.data.model.Message
 import ru.yakut54.ktoto.data.model.RegisterRequest
 import ru.yakut54.ktoto.data.model.SendMessageRequest
+import ru.yakut54.ktoto.data.model.UserItem
 
 interface ApiService {
 
@@ -25,6 +26,12 @@ interface ApiService {
 
     @POST("api/auth/register")
     suspend fun register(@Body body: RegisterRequest): AuthResponse
+
+    @GET("api/users")
+    suspend fun searchUsers(
+        @Header("Authorization") token: String,
+        @Query("search") search: String = "",
+    ): List<UserItem>
 
     @GET("api/conversations")
     suspend fun getConversations(@Header("Authorization") token: String): List<Conversation>

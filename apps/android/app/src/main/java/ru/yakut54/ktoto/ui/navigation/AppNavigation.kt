@@ -14,10 +14,12 @@ import ru.yakut54.ktoto.data.store.TokenStore
 import ru.yakut54.ktoto.ui.auth.AuthScreen
 import ru.yakut54.ktoto.ui.chat.ChatScreen
 import ru.yakut54.ktoto.ui.conversations.ConversationsScreen
+import ru.yakut54.ktoto.ui.newchat.NewChatScreen
 
 object Routes {
     const val AUTH = "auth"
     const val CONVERSATIONS = "conversations"
+    const val NEW_CHAT = "new_chat"
     const val CHAT = "chat/{convId}/{convName}/{userId}"
 
     fun chat(convId: String, convName: String, userId: String) =
@@ -46,13 +48,23 @@ fun AppNavigation() {
             ConversationsScreen(
                 onConversationClick = { conv, userId ->
                     token?.let { socketManager.connect(it) }
-                    navController.navigate(
-                        Routes.chat(conv.id, conv.name ?: "Чат", userId)
-                    )
+                    navController.navigate(Routes.chat(conv.id, conv.name ?: "Чат", userId))
                 },
+                onNewChat = { navController.navigate(Routes.NEW_CHAT) },
                 onLogout = {
                     socketManager.disconnect()
                     navController.navigate(Routes.AUTH) {
+                        popUpTo(Routes.CONVERSATIONS) { inclusive = true }
+                    }
+                },
+            )
+        }
+
+        composable(Routes.NEW_CHAT) {
+            NewChatScreen(
+                onBack = { navController.popBackStack() },
+                onCreated = { convId ->
+                    navController.navigate(Routes.CONVERSATIONS) {
                         popUpTo(Routes.CONVERSATIONS) { inclusive = true }
                     }
                 },

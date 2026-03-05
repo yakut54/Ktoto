@@ -15,7 +15,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Badge
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,6 +46,7 @@ import ru.yakut54.ktoto.data.model.Conversation
 @Composable
 fun ConversationsScreen(
     onConversationClick: (Conversation, userId: String) -> Unit,
+    onNewChat: () -> Unit,
     onLogout: () -> Unit,
 ) {
     val vm: ConversationsViewModel = koinViewModel()
@@ -60,6 +63,11 @@ fun ConversationsScreen(
                     }
                 },
             )
+        },
+        floatingActionButton = {
+            FloatingActionButton(onClick = onNewChat) {
+                Icon(Icons.Default.Add, contentDescription = "Новый чат")
+            }
         },
     ) { padding ->
         PullToRefreshBox(

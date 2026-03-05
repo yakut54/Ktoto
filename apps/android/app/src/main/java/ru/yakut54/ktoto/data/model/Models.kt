@@ -53,6 +53,8 @@ data class Sender(
 
 data class SendMessageRequest(val content: String, val type: String = "text")
 
+data class UserItem(val id: String, val username: String, val avatarUrl: String?)
+
 data class CreateConversationRequest(
     val type: String,
     val userId: String? = null,

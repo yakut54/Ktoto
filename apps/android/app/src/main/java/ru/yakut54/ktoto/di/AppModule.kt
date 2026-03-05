@@ -9,6 +9,7 @@ import ru.yakut54.ktoto.data.store.TokenStore
 import ru.yakut54.ktoto.ui.auth.AuthViewModel
 import ru.yakut54.ktoto.ui.chat.ChatViewModel
 import ru.yakut54.ktoto.ui.conversations.ConversationsViewModel
+import ru.yakut54.ktoto.ui.newchat.NewChatViewModel
 
 private const val BASE_URL = "http://31.128.39.216:3000/"
 
@@ -19,4 +20,5 @@ val appModule = module {
     viewModel { AuthViewModel(get(), get()) }
     viewModel { ConversationsViewModel(get(), get()) }
     viewModel { ChatViewModel(get(), get(), get()) }
+    viewModel { NewChatViewModel(get(), get()) }
 }

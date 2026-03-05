@@ -5,7 +5,15 @@
       "Bash(ssh:*)",
       "Bash(python3:*)",
       "Bash(pip install:*)",
-      "Bash(py:*)"
+      "Bash(py:*)",
+      "Bash(pnpm install:*)",
+      "Bash(npm install:*)",
+      "Bash(pip3 install:*)",
+      "Bash(where:*)",
+      "Bash(node:*)",
+      "Bash(mkdir:*)",
+      "Bash(gh:*)",
+      "Bash(pnpm:*)"
     ]
   }
 }
