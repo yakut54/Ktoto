@@ -27,6 +27,7 @@ class ConversationsViewModel(
     val state: StateFlow<ConversationsState> = _state
 
     val userId = tokenStore.userId.stateIn(viewModelScope, SharingStarted.Eagerly, "")
+    val username = tokenStore.username.stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
     init {
         load()

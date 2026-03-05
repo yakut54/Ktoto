@@ -56,6 +56,7 @@ fun ConversationsScreen(
     val vm: ConversationsViewModel = koinViewModel()
     val state by vm.state.collectAsState()
     val userId by vm.userId.collectAsState()
+    val username by vm.username.collectAsState()
 
     // Reload every time screen comes back into foreground (e.g. after returning from chat)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -68,7 +69,12 @@ fun ConversationsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Ktoto", fontWeight = FontWeight.Bold) },
+                title = {
+                    Column {
+                        Text("Ktoto", fontWeight = FontWeight.Bold)
+                        if (username.isNotBlank()) Text(username, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                },
                 actions = {
                     IconButton(onClick = { vm.logout(onLogout) }) {
                         Icon(Icons.Default.ExitToApp, contentDescription = "Выйти")
