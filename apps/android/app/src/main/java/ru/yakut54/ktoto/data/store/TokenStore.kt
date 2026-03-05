@@ -19,6 +19,7 @@ class TokenStore(private val context: Context) {
     }
 
     val accessToken: Flow<String?> = context.dataStore.data.map { it[KEY_ACCESS] }
+    val refreshToken: Flow<String?> = context.dataStore.data.map { it[KEY_REFRESH] }
     val userId: Flow<String> = context.dataStore.data.map { it[KEY_USER_ID] ?: "" }
     val username: Flow<String?> = context.dataStore.data.map { it[KEY_USERNAME] }
 
@@ -28,6 +29,13 @@ class TokenStore(private val context: Context) {
             it[KEY_REFRESH] = refreshToken
             it[KEY_USER_ID] = userId
             it[KEY_USERNAME] = username
+        }
+    }
+
+    suspend fun saveTokens(accessToken: String, refreshToken: String) {
+        context.dataStore.edit {
+            it[KEY_ACCESS] = accessToken
+            it[KEY_REFRESH] = refreshToken
         }
     }
 

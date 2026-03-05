@@ -15,7 +15,7 @@ private const val BASE_URL = "http://31.128.39.216:3000/"
 
 val appModule = module {
     single { TokenStore(androidContext()) }
-    single { buildApiService(BASE_URL) }
+    single { buildApiService(BASE_URL, get()) }
     single { SocketManager() }
     viewModel { AuthViewModel(get(), get()) }
     viewModel { ConversationsViewModel(get(), get()) }

@@ -1,11 +1,18 @@
 package ru.yakut54.ktoto.ui.navigation
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import org.koin.compose.koinInject
@@ -35,8 +42,34 @@ fun AppNavigation() {
 
     val navController = rememberNavController()
     val startDestination = if (token != null) Routes.CONVERSATIONS else Routes.AUTH
+    val currentRoute by navController.currentBackStackEntryAsState()
 
-    NavHost(navController = navController, startDestination = startDestination) {
+    // Auto-redirect to login when token is cleared (e.g. refresh token expired)
+    LaunchedEffect(token) {
+        if (token == null && currentRoute?.destination?.route != Routes.AUTH) {
+            socketManager.disconnect()
+            navController.navigate(Routes.AUTH) {
+                popUpTo(0) { inclusive = true }
+            }
+        }
+    }
+
+    NavHost(
+        navController = navController,
+        startDestination = startDestination,
+        enterTransition = {
+            slideInHorizontally(tween(220)) { it / 4 } + fadeIn(tween(220))
+        },
+        exitTransition = {
+            slideOutHorizontally(tween(200)) { -it / 4 } + fadeOut(tween(200))
+        },
+        popEnterTransition = {
+            slideInHorizontally(tween(220)) { -it / 4 } + fadeIn(tween(220))
+        },
+        popExitTransition = {
+            slideOutHorizontally(tween(200)) { it / 4 } + fadeOut(tween(200))
+        },
+    ) {
         composable(Routes.AUTH) {
             AuthScreen(onSuccess = {
                 navController.navigate(Routes.CONVERSATIONS) {

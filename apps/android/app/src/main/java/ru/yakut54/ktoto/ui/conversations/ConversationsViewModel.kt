@@ -26,22 +26,40 @@ class ConversationsViewModel(
     private val _state = MutableStateFlow<ConversationsState>(ConversationsState.Loading)
     val state: StateFlow<ConversationsState> = _state
 
+    // Only true when user manually pulls to refresh
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing
+
     val userId = tokenStore.userId.stateIn(viewModelScope, SharingStarted.Eagerly, "")
     val username = tokenStore.username.stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
-    init {
-        load()
-    }
-
+    // Silent load — called on screen resume, no visible indicator
     fun load() {
         viewModelScope.launch {
-            _state.value = ConversationsState.Loading
+            val hasData = _state.value is ConversationsState.Success
+            if (!hasData) _state.value = ConversationsState.Loading
             try {
                 val token = tokenStore.accessToken.first() ?: error("Not authenticated")
                 val list = api.getConversations("Bearer $token")
                 _state.value = ConversationsState.Success(list)
             } catch (e: Exception) {
-                _state.value = ConversationsState.Error(e.message ?: "Failed to load")
+                if (!hasData) _state.value = ConversationsState.Error(e.message ?: "Failed to load")
+            }
+        }
+    }
+
+    // Explicit pull-to-refresh — shows the spinner indicator
+    fun refresh() {
+        viewModelScope.launch {
+            _refreshing.value = true
+            try {
+                val token = tokenStore.accessToken.first() ?: error("Not authenticated")
+                val list = api.getConversations("Bearer $token")
+                _state.value = ConversationsState.Success(list)
+            } catch (_: Exception) {
+                // Silently fail — don't replace existing data on refresh error
+            } finally {
+                _refreshing.value = false
             }
         }
     }

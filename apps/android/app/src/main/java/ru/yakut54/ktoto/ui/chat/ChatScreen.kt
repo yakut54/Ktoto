@@ -8,9 +8,10 @@ import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,6 +36,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.AudioFile
@@ -44,7 +47,6 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -55,7 +57,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -80,6 +81,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
@@ -88,7 +90,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.androidx.compose.koinViewModel
 import ru.yakut54.ktoto.data.model.Attachment
 import ru.yakut54.ktoto.data.model.Message
@@ -110,7 +112,7 @@ fun ChatScreen(
     val recordingSeconds by vm.recordingSeconds.collectAsState()
 
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
 
     LaunchedEffect(conversationId) { vm.init(conversationId) }
 
@@ -121,32 +123,33 @@ fun ChatScreen(
 
     var text by remember { mutableStateOf("") }
     var showAttachSheet by remember { mutableStateOf(false) }
+    // Tracks swipe-left cancel hint during recording
+    var recordingCancelHint by remember { mutableStateOf(false) }
 
-    // Permission launcher
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { _ -> }
 
-    // Image picker (gallery)
     val imagePickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
-    ) { uri: Uri? ->
-        uri?.let { vm.sendMediaMessage(context, it, "image") }
-    }
+    ) { uri: Uri? -> uri?.let { vm.sendMediaMessage(context, it, "image") } }
 
-    // Camera photo
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
-    ) { success ->
-        if (success) cameraUri?.let { vm.sendMediaMessage(context, it, "image") }
-    }
+    ) { success -> if (success) cameraUri?.let { vm.sendMediaMessage(context, it, "image") } }
 
-    // File picker
     val filePickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        uri?.let { vm.sendMediaMessage(context, it, "file") }
+    ) { uri: Uri? -> uri?.let { vm.sendMediaMessage(context, it, "file") } }
+
+    fun openCamera() {
+        permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA))
+        val photoFile = java.io.File(context.externalCacheDir, "photo_${System.currentTimeMillis()}.jpg")
+        cameraUri = androidx.core.content.FileProvider.getUriForFile(
+            context, "${context.packageName}.fileprovider", photoFile
+        )
+        cameraUri?.let { cameraLauncher.launch(it) }
     }
 
     Scaffold(
@@ -169,48 +172,29 @@ fun ChatScreen(
         },
         bottomBar = {
             Surface(shadowElevation = 4.dp, tonalElevation = 2.dp) {
-                if (isRecording) {
-                    // Voice recording bar
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .imePadding(),
+                ) {
+                    // ── Main input row ──────────────────────────────────────
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .navigationBarsPadding()
-                            .imePadding()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        IconButton(onClick = { vm.cancelRecording() }) {
-                            Icon(Icons.Default.Close, "Отмена", tint = MaterialTheme.colorScheme.error)
-                        }
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .clip(CircleShape)
-                                .background(Color.Red),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = formatDuration(recordingSeconds),
-                            modifier = Modifier.weight(1f),
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                        FilledIconButton(onClick = { vm.stopRecordingAndSend(context) }) {
-                            Icon(Icons.Default.Stop, "Отправить")
-                        }
-                    }
-                } else {
-                    // Normal input bar
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .navigationBarsPadding()
-                            .imePadding()
-                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                            .padding(start = 4.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
                         verticalAlignment = Alignment.Bottom,
                     ) {
+                        // 📎 Attach
                         IconButton(onClick = { showAttachSheet = true }) {
-                            Icon(Icons.Default.AttachFile, "Прикрепить")
+                            Icon(
+                                Icons.Default.AttachFile,
+                                contentDescription = "Прикрепить",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
+
+                        // Text field
                         TextField(
                             value = text,
                             onValueChange = {
@@ -229,32 +213,121 @@ fun ChatScreen(
                             ),
                             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                         )
-                        Spacer(Modifier.width(8.dp))
+
+                        // 📷 Camera — shown only when text field is empty
+                        if (text.isBlank() && !sending) {
+                            IconButton(onClick = ::openCamera) {
+                                Icon(
+                                    Icons.Default.PhotoCamera,
+                                    contentDescription = "Камера",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.width(2.dp))
+
+                        // Send / Mic
                         if (sending) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(48.dp).padding(4.dp),
+                                modifier = Modifier.size(48.dp).padding(8.dp),
+                                strokeWidth = 3.dp,
                             )
-                        } else if (text.isBlank()) {
-                            // Mic button when text is empty
-                            FilledIconButton(
-                                onClick = {
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                        permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
-                                    }
-                                    vm.startRecording(context)
-                                },
-                                modifier = Modifier.size(48.dp),
-                            ) {
-                                Icon(Icons.Default.Mic, "Голосовое")
-                            }
-                        } else {
+                        } else if (text.isNotBlank()) {
+                            // ▶ Send text
                             FilledIconButton(
                                 onClick = { vm.sendMessage(text); text = "" },
-                                enabled = text.isNotBlank(),
                                 modifier = Modifier.size(48.dp),
                             ) {
                                 Icon(Icons.AutoMirrored.Filled.Send, "Отправить")
                             }
+                        } else {
+                            // 🎤 Mic — long press to record, release to send, swipe left to cancel
+                            val cancelThresholdPx = with(density) { 80.dp.toPx() }
+                            FilledIconButton(
+                                onClick = {},
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .pointerInput(Unit) {
+                                        awaitEachGesture {
+                                            val down = awaitFirstDown(requireUnconsumed = false)
+                                            // Wait for long press (500ms)
+                                            val upBeforeLongPress = withTimeoutOrNull(
+                                                viewConfiguration.longPressTimeoutMillis
+                                            ) { waitForUpOrCancellation() }
+
+                                            if (upBeforeLongPress == null) {
+                                                // Long press — start recording
+                                                permissionLauncher.launch(
+                                                    arrayOf(Manifest.permission.RECORD_AUDIO)
+                                                )
+                                                vm.startRecording(context)
+                                                recordingCancelHint = false
+
+                                                // Track pointer until release
+                                                var cancelled = false
+                                                while (true) {
+                                                    val event = awaitPointerEvent()
+                                                    val change = event.changes.firstOrNull() ?: break
+                                                    val dragX = change.position.x - down.position.x
+                                                    cancelled = dragX < -cancelThresholdPx
+                                                    recordingCancelHint = cancelled
+                                                    if (!change.pressed) break
+                                                }
+                                                recordingCancelHint = false
+                                                if (cancelled) vm.cancelRecording()
+                                                else vm.stopRecordingAndSend(context)
+                                            }
+                                        }
+                                    },
+                            ) {
+                                Icon(Icons.Default.Mic, "Удержи для записи")
+                            }
+                        }
+                    }
+
+                    // ── Recording overlay (over the text field area) ────────
+                    if (isRecording) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.Center)
+                                .padding(start = 8.dp, end = 60.dp, top = 6.dp, bottom = 6.dp)
+                                .height(56.dp)
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            // Cancel hint
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                contentDescription = null,
+                                tint = if (recordingCancelHint) MaterialTheme.colorScheme.error
+                                       else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 4.dp),
+                            )
+                            Text(
+                                "Отмена",
+                                fontSize = 13.sp,
+                                color = if (recordingCancelHint) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+
+                            Spacer(Modifier.weight(1f))
+
+                            // Red dot + timer
+                            Box(
+                                Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Red),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                formatDuration(recordingSeconds),
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(end = 12.dp),
+                            )
                         }
                     }
                 }
@@ -263,7 +336,10 @@ fun ChatScreen(
     ) { padding ->
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 8.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             items(messages, key = { it.id }) { msg ->
@@ -272,7 +348,7 @@ fun ChatScreen(
         }
     }
 
-    // Attach bottom sheet
+    // Attach bottom sheet — gallery + file
     if (showAttachSheet) {
         val sheetState = rememberModalBottomSheetState()
         ModalBottomSheet(
@@ -280,10 +356,7 @@ fun ChatScreen(
             sheetState = sheetState,
             dragHandle = { BottomSheetDefaults.DragHandle() },
         ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            ) {
-                Text("Прикрепить", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
+            Column(modifier = Modifier.padding(bottom = 24.dp)) {
                 AttachOption(
                     icon = { Icon(Icons.Default.PhotoLibrary, null) },
                     label = "Галерея",
@@ -302,19 +375,6 @@ fun ChatScreen(
                     },
                 )
                 AttachOption(
-                    icon = { Icon(Icons.Default.PhotoCamera, null) },
-                    label = "Камера",
-                    onClick = {
-                        showAttachSheet = false
-                        permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA))
-                        val photoFile = java.io.File(context.externalCacheDir, "photo_${System.currentTimeMillis()}.jpg")
-                        cameraUri = androidx.core.content.FileProvider.getUriForFile(
-                            context, "${context.packageName}.fileprovider", photoFile
-                        )
-                        cameraUri?.let { cameraLauncher.launch(it) }
-                    },
-                )
-                AttachOption(
                     icon = { Icon(Icons.Default.Description, null) },
                     label = "Файл",
                     onClick = {
@@ -322,7 +382,6 @@ fun ChatScreen(
                         filePickerLauncher.launch(arrayOf("*/*"))
                     },
                 )
-                Spacer(Modifier.height(16.dp))
             }
         }
     }
@@ -332,14 +391,16 @@ fun ChatScreen(
 private fun AttachOption(icon: @Composable () -> Unit, label: String, onClick: () -> Unit) {
     TextButton(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             icon()
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(16.dp))
             Text(label, style = MaterialTheme.typography.bodyLarge)
         }
     }
@@ -383,22 +444,9 @@ private fun MessageBubble(message: Message, isMine: Boolean) {
             }
 
             when (message.type) {
-                "image" -> ImageBubble(
-                    message = message,
-                    isMine = isMine,
-                    bubbleColor = bubbleColor,
-                    textColor = textColor,
-                )
-                "voice" -> VoiceBubble(
-                    message = message,
-                    isMine = isMine,
-                    textColor = textColor,
-                )
-                "file" -> FileBubble(
-                    message = message,
-                    isMine = isMine,
-                    textColor = textColor,
-                )
+                "image" -> ImageBubble(message = message, isMine = isMine, bubbleColor = bubbleColor, textColor = textColor)
+                "voice" -> VoiceBubble(message = message, isMine = isMine, textColor = textColor)
+                "file"  -> FileBubble(message = message, isMine = isMine, textColor = textColor)
                 else -> {
                     Text(text = message.content ?: "", color = textColor)
                     Text(
@@ -417,7 +465,6 @@ private fun MessageBubble(message: Message, isMine: Boolean) {
 private fun ImageBubble(message: Message, isMine: Boolean, bubbleColor: Color, textColor: Color) {
     val att = message.attachment
     var showFullscreen by remember { mutableStateOf(false) }
-
     val shape = RoundedCornerShape(
         topStart = 18.dp, topEnd = 18.dp,
         bottomStart = if (isMine) 18.dp else 4.dp,
@@ -429,7 +476,13 @@ private fun ImageBubble(message: Message, isMine: Boolean, bubbleColor: Color, t
             .widthIn(max = 280.dp)
             .clip(shape)
             .background(bubbleColor)
-            .pointerInput(Unit) { detectTapGestures { showFullscreen = true } },
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown()
+                    val up = waitForUpOrCancellation()
+                    if (up != null) showFullscreen = true
+                }
+            },
     ) {
         val imageUrl = att?.thumbnailUrl ?: att?.url
         if (imageUrl != null) {
@@ -445,9 +498,7 @@ private fun ImageBubble(message: Message, isMine: Boolean, bubbleColor: Color, t
             Box(
                 Modifier.size(200.dp, 150.dp).background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
-            ) {
-                CircularProgressIndicator()
-            }
+            ) { CircularProgressIndicator() }
         }
         Text(
             text = formatMessageTime(message.createdAt),
@@ -476,12 +527,18 @@ private fun FullscreenImageViewer(url: String, onDismiss: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black)
-                .pointerInput(Unit) { detectTapGestures { onDismiss() } },
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown()
+                        val up = waitForUpOrCancellation()
+                        if (up != null) onDismiss()
+                    }
+                },
             contentAlignment = Alignment.Center,
         ) {
             AsyncImage(
                 model = url,
-                contentDescription = "Полноэкранное фото",
+                contentDescription = "Фото",
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -503,10 +560,7 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
     val player = remember { mutableStateOf<MediaPlayer?>(null) }
 
     DisposableEffect(Unit) {
-        onDispose {
-            player.value?.release()
-            player.value = null
-        }
+        onDispose { player.value?.release(); player.value = null }
     }
 
     LaunchedEffect(isPlaying) {
@@ -521,26 +575,22 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
 
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(
-                onClick = {
-                    if (isPlaying) {
-                        player.value?.pause()
-                        isPlaying = false
-                    } else {
-                        if (player.value == null && att?.url != null) {
-                            player.value = MediaPlayer().apply {
-                                setDataSource(att.url)
-                                prepareAsync()
-                                setOnPreparedListener { start(); isPlaying = true }
-                                setOnCompletionListener { isPlaying = false; progress = 0f }
-                            }
-                        } else {
-                            player.value?.start()
-                            isPlaying = true
+            IconButton(onClick = {
+                if (isPlaying) {
+                    player.value?.pause(); isPlaying = false
+                } else {
+                    if (player.value == null && att?.url != null) {
+                        player.value = MediaPlayer().apply {
+                            setDataSource(att.url)
+                            prepareAsync()
+                            setOnPreparedListener { start(); isPlaying = true }
+                            setOnCompletionListener { isPlaying = false; progress = 0f }
                         }
+                    } else {
+                        player.value?.start(); isPlaying = true
                     }
-                },
-            ) {
+                }
+            }) {
                 Icon(
                     if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                     "Воспроизвести",
@@ -550,8 +600,11 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
             Column(modifier = Modifier.weight(1f)) {
                 LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(2.dp))
-                val durationText = att?.duration?.let { formatDuration(it.toInt()) } ?: "—"
-                Text(durationText, fontSize = 10.sp, color = textColor.copy(alpha = 0.7f))
+                Text(
+                    att?.duration?.let { formatDuration(it.toInt()) } ?: "—",
+                    fontSize = 10.sp,
+                    color = textColor.copy(alpha = 0.7f),
+                )
             }
         }
         Text(
@@ -572,10 +625,14 @@ private fun FileBubble(message: Message, isMine: Boolean, textColor: Color) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.pointerInput(Unit) {
-                detectTapGestures {
-                    att?.url?.let { url ->
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                        context.startActivity(Intent.createChooser(intent, "Открыть файл"))
+                awaitEachGesture {
+                    awaitFirstDown()
+                    val up = waitForUpOrCancellation()
+                    if (up != null) {
+                        att?.url?.let { url ->
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                            context.startActivity(Intent.createChooser(intent, "Открыть файл"))
+                        }
                     }
                 }
             },
