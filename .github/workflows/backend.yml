@@ -144,11 +144,15 @@ jobs:
             sleep 5
             docker exec ktoto_backend node dist/db/migrate.js || true
 
-            # Health check
-            sleep 10
-            docker exec ktoto_backend wget -qO- http://localhost:3000/health || exit 1
-
-            echo "Deploy successful ✓"
+            # Health check with retry
+            for i in $(seq 1 15); do
+              docker exec ktoto_backend wget -qO- http://localhost:3000/health && echo "Deploy successful ✓" && exit 0
+              echo "Waiting... ($i/15)"
+              sleep 3
+            done
+            echo "Health check failed after 45s"
+            docker logs ktoto_backend --tail 20
+            exit 1
 
       - name: Notify success
         if: success()
