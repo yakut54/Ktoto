@@ -3,6 +3,7 @@ import { dbPlugin } from './plugins/db.js'
 import { redisPlugin } from './plugins/redis.js'
 import { corsPlugin } from './plugins/cors.js'
 import { jwtPlugin } from './plugins/jwt.js'
+import { socketPlugin } from './plugins/socket.js'
 import { authRoutes } from './routes/auth/index.js'
 import { healthRoutes } from './routes/health.js'
 
@@ -27,6 +28,7 @@ export async function buildApp() {
   await app.register(dbPlugin)
   await app.register(redisPlugin)
   await app.register(jwtPlugin)
+  await app.register(socketPlugin)
 
   await app.register(healthRoutes)
   await app.register(authRoutes, { prefix: '/api/auth' })
