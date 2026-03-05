@@ -5,6 +5,7 @@ import { corsPlugin } from './plugins/cors.js'
 import { jwtPlugin } from './plugins/jwt.js'
 import { socketPlugin } from './plugins/socket.js'
 import { authRoutes } from './routes/auth/index.js'
+import { conversationRoutes } from './routes/conversations/index.js'
 import { healthRoutes } from './routes/health.js'
 
 export async function buildApp() {
@@ -32,6 +33,7 @@ export async function buildApp() {
 
   await app.register(healthRoutes)
   await app.register(authRoutes, { prefix: '/api/auth' })
+  await app.register(conversationRoutes, { prefix: '/api/conversations' })
 
   return app
 }
