@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -825,6 +826,13 @@ private fun MessageBubble(message: Message, isMine: Boolean, allMessages: List<M
 
     val replyOrigin = if (message.replyToId != null) allMessages.find { it.id == message.replyToId } else null
 
+    val effectiveType = when {
+        message.type == "image" || message.attachment?.mimeType?.startsWith("image/") == true -> "image"
+        message.type == "voice" || message.attachment?.mimeType?.startsWith("audio/") == true -> "voice"
+        message.type == "file"  || (message.attachment != null && message.type !in listOf("text", null)) -> "file"
+        else -> "text"
+    }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
@@ -833,7 +841,7 @@ private fun MessageBubble(message: Message, isMine: Boolean, allMessages: List<M
             modifier = Modifier
                 .widthIn(max = 300.dp)
                 .background(
-                    color = if (message.type == "image") Color.Transparent else bubbleColor,
+                    color = if (effectiveType == "image") Color.Transparent else bubbleColor,
                     shape = RoundedCornerShape(
                         topStart = 18.dp, topEnd = 18.dp,
                         bottomStart = if (isMine) 18.dp else 4.dp,
@@ -841,7 +849,7 @@ private fun MessageBubble(message: Message, isMine: Boolean, allMessages: List<M
                     ),
                 )
                 .then(
-                    if (message.type != "image") Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    if (effectiveType != "image") Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                     else Modifier
                 ),
         ) {
@@ -879,7 +887,7 @@ private fun MessageBubble(message: Message, isMine: Boolean, allMessages: List<M
                 Spacer(Modifier.height(4.dp))
             }
 
-            if (!isMine && message.type != "image") {
+            if (!isMine && effectiveType != "image") {
                 Text(
                     text = message.sender.username,
                     fontSize = 11.sp,
@@ -889,7 +897,7 @@ private fun MessageBubble(message: Message, isMine: Boolean, allMessages: List<M
                 )
             }
 
-            when (message.type) {
+            when (effectiveType) {
                 "image" -> ImageBubble(message, isMine, bubbleColor, textColor)
                 "voice" -> VoiceBubble(message, isMine, textColor)
                 "file"  -> FileBubble(message, isMine, textColor)
@@ -1032,9 +1040,11 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
         }
     }
 
-    Column(modifier = Modifier.widthIn(min = 200.dp)) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = {
