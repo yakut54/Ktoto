@@ -21,6 +21,9 @@ export const s3Plugin = fp(async (app: FastifyInstance) => {
       secretAccessKey: process.env.MINIO_ROOT_PASSWORD ?? 'ktoto-minio-2026',
     },
     forcePathStyle: true, // required for MinIO
+    // AWS SDK v3.577+ adds checksum headers that MinIO doesn't support
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED',
   })
 
   // Ensure bucket exists
