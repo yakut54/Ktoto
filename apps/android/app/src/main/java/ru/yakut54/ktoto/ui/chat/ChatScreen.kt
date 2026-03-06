@@ -114,7 +114,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.PointerEventPass
+
 import ru.yakut54.ktoto.data.model.Attachment
 import ru.yakut54.ktoto.data.model.Message
 import ru.yakut54.ktoto.utils.formatMessageTime
@@ -735,39 +735,12 @@ fun ChatScreen(
                                 },
                                 modifier = Modifier.padding(start = 4.dp),
                             )
-                            // Wrap bubble in a Box that intercepts taps at Initial pass
-                            // so inner interactive elements (play button, image tap) don't fire
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .pointerInput(msg.id) {
-                                        awaitEachGesture {
-                                            val down = awaitFirstDown(
-                                                requireUnconsumed = false,
-                                                pass = PointerEventPass.Initial,
-                                            )
-                                            down.consume()
-                                            var tapped = false
-                                            while (true) {
-                                                val evt = awaitPointerEvent(PointerEventPass.Initial)
-                                                val ch = evt.changes.firstOrNull() ?: break
-                                                ch.consume()
-                                                if (!ch.pressed) { tapped = true; break }
-                                            }
-                                            if (tapped) {
-                                                selectedIds = if (msg.id in selectedIds) selectedIds - msg.id else selectedIds + msg.id
-                                                if (selectedIds.isEmpty()) selectionMode = false
-                                            }
-                                        }
-                                    },
-                            ) {
-                                MessageBubble(
-                                    message = msg,
-                                    isMine = msg.sender.id == currentUserId,
-                                    allMessages = messages,
-                                    onLongClick = {},
-                                )
-                            }
+                            MessageBubble(
+                                message = msg,
+                                isMine = msg.sender.id == currentUserId,
+                                allMessages = messages,
+                                onLongClick = {},
+                            )
                         }
                     } else {
                         MessageBubble(
