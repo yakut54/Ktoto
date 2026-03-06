@@ -13,9 +13,21 @@ CREATE TABLE IF NOT EXISTS users (
   bio           TEXT,
   status        VARCHAR(20)  DEFAULT 'offline',
   last_seen_at  TIMESTAMPTZ,
+  role          VARCHAR(20)  DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+  banned_at     TIMESTAMPTZ,
   created_at    TIMESTAMPTZ  DEFAULT NOW(),
   updated_at    TIMESTAMPTZ  DEFAULT NOW()
 );
+
+-- ALTER for live DB (idempotent)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='role') THEN
+    ALTER TABLE users ADD COLUMN role VARCHAR(20) DEFAULT 'user' CHECK (role IN ('user', 'admin'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='banned_at') THEN
+    ALTER TABLE users ADD COLUMN banned_at TIMESTAMPTZ;
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_users_email    ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);

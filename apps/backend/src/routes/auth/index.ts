@@ -31,7 +31,7 @@ export async function authRoutes(app: FastifyInstance) {
 
     try {
       const user = await authService.register(parsed.data)
-      const accessToken = tokenService.generateAccessToken(user.id)
+      const accessToken = tokenService.generateAccessToken(user.id, user.role)
       const refreshToken = await tokenService.generateRefreshToken(user.id)
 
       return reply.status(201).send({ user, accessToken, refreshToken })
@@ -50,12 +50,14 @@ export async function authRoutes(app: FastifyInstance) {
 
     try {
       const user = await authService.login(parsed.data)
-      const accessToken = tokenService.generateAccessToken(user.id)
+      const accessToken = tokenService.generateAccessToken(user.id, user.role)
       const refreshToken = await tokenService.generateRefreshToken(user.id)
 
       return { user, accessToken, refreshToken }
-    } catch {
-      return reply.status(401).send({ error: 'Invalid credentials' })
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Invalid credentials'
+      const status = message === 'Account is banned' ? 403 : 401
+      return reply.status(status).send({ error: message })
     }
   })
 
@@ -70,7 +72,10 @@ export async function authRoutes(app: FastifyInstance) {
       const userId = await tokenService.validateRefreshToken(parsed.data.refreshToken)
       await tokenService.revokeRefreshToken(parsed.data.refreshToken) // Rotation
 
-      const accessToken = tokenService.generateAccessToken(userId)
+      const user = await authService.getById(userId)
+      const role = user?.role ?? 'user'
+
+      const accessToken = tokenService.generateAccessToken(userId, role)
       const newRefreshToken = await tokenService.generateRefreshToken(userId)
 
       return { accessToken, refreshToken: newRefreshToken }

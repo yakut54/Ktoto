@@ -7,9 +7,9 @@ const REFRESH_EXPIRES_SEC = 7 * 24 * 60 * 60 // 7 days in seconds
 export class TokenService {
   constructor(private app: FastifyInstance) {}
 
-  generateAccessToken(userId: string): string {
+  generateAccessToken(userId: string, role: string = 'user'): string {
     return this.app.jwt.sign(
-      { userId, type: 'access' },
+      { userId, role, type: 'access' },
       { expiresIn: ACCESS_EXPIRES }
     )
   }

@@ -7,6 +7,8 @@ export interface User {
   username: string
   email: string
   avatar_url: string | null
+  role: string
+  banned_at: Date | null
   created_at: Date
 }
 
@@ -40,7 +42,7 @@ export class AuthService {
       const result: QueryResult<User> = await client.query(
         `INSERT INTO users (username, email, password_hash)
          VALUES ($1, $2, $3)
-         RETURNING id, username, email, avatar_url, created_at`,
+         RETURNING id, username, email, avatar_url, role, banned_at, created_at`,
         [data.username.toLowerCase(), data.email.toLowerCase(), passwordHash]
       )
 
@@ -58,7 +60,7 @@ export class AuthService {
 
     try {
       const result: QueryResult<UserWithPassword> = await client.query(
-        `SELECT id, username, email, avatar_url, created_at, password_hash
+        `SELECT id, username, email, avatar_url, role, banned_at, created_at, password_hash
          FROM users WHERE username = $1 LIMIT 1`,
         [data.username.toLowerCase()]
       )
@@ -68,6 +70,11 @@ export class AuthService {
       }
 
       const user = result.rows[0]
+
+      if (user.banned_at) {
+        throw new Error('Account is banned')
+      }
+
       const valid = await argon2.verify(user.password_hash, data.password)
 
       if (!valid) {
@@ -92,7 +99,7 @@ export class AuthService {
 
     try {
       const result: QueryResult<User> = await client.query(
-        `SELECT id, username, email, avatar_url, created_at
+        `SELECT id, username, email, avatar_url, role, banned_at, created_at
          FROM users WHERE id = $1 LIMIT 1`,
         [userId]
       )

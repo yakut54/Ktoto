@@ -10,6 +10,8 @@ import { authRoutes } from './routes/auth/index.js'
 import { conversationRoutes } from './routes/conversations/index.js'
 import { userRoutes } from './routes/users/index.js'
 import { healthRoutes } from './routes/health.js'
+import { authorizePlugin } from './plugins/authorize.js'
+import { adminRoutes } from './routes/admin/index.js'
 
 export async function buildApp() {
   const isProd = process.env.NODE_ENV === 'production'
@@ -32,6 +34,7 @@ export async function buildApp() {
   await app.register(dbPlugin)
   await app.register(redisPlugin)
   await app.register(jwtPlugin)
+  await app.register(authorizePlugin)
   await app.register(socketPlugin)
   await app.register(s3Plugin)
   await app.register(multipart, {
@@ -42,6 +45,7 @@ export async function buildApp() {
   await app.register(authRoutes, { prefix: '/api/auth' })
   await app.register(conversationRoutes, { prefix: '/api/conversations' })
   await app.register(userRoutes, { prefix: '/api/users' })
+  await app.register(adminRoutes, { prefix: '/api/admin' })
 
   return app
 }
