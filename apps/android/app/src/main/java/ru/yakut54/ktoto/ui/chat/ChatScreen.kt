@@ -81,7 +81,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -1023,6 +1027,9 @@ private fun FullscreenImageViewer(url: String, onDismiss: () -> Unit) {
 @Composable
 private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
     val att = message.attachment
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     var isPlaying by remember { mutableStateOf(false) }
     var isPreparing by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
@@ -1043,6 +1050,41 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
         }
     }
 
+    fun startPlayback() {
+        val url = att?.url ?: run { loadError = true; return }
+        isPreparing = true
+        scope.launch {
+            try {
+                // Download to cache first — avoids MediaPlayer HTTP streaming issues
+                val cacheFile = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val file = java.io.File(context.cacheDir, "voice_${message.id}.m4a")
+                    if (!file.exists() || file.length() == 0L) {
+                        val client = okhttp3.OkHttpClient()
+                        val req = okhttp3.Request.Builder().url(url).build()
+                        client.newCall(req).execute().use { resp ->
+                            if (!resp.isSuccessful) throw Exception("HTTP ${resp.code}")
+                            resp.body?.byteStream()?.use { input ->
+                                file.outputStream().use { out -> input.copyTo(out) }
+                            }
+                        }
+                    }
+                    file
+                }
+                player.value = MediaPlayer().apply {
+                    setDataSource(cacheFile.absolutePath)
+                    setOnErrorListener { _, _, _ ->
+                        loadError = true; isPlaying = false; isPreparing = false; true
+                    }
+                    setOnPreparedListener { isPreparing = false; start(); isPlaying = true }
+                    setOnCompletionListener { isPlaying = false; progress = 0f }
+                    prepareAsync()
+                }
+            } catch (e: Exception) {
+                loadError = true; isPreparing = false
+            }
+        }
+    }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -1056,25 +1098,8 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
                     player.value?.pause()
                     isPlaying = false
                 } else {
-                    val url = att?.url
-                    if (url.isNullOrBlank()) { loadError = true; return@IconButton }
-                    if (player.value == null) {
-                        isPreparing = true
-                        runCatching {
-                            player.value = MediaPlayer().apply {
-                                setDataSource(url)
-                                setOnErrorListener { _, _, _ ->
-                                    loadError = true; isPlaying = false; isPreparing = false; true
-                                }
-                                setOnPreparedListener { isPreparing = false; start(); isPlaying = true }
-                                setOnCompletionListener { isPlaying = false; progress = 0f }
-                                prepareAsync()
-                            }
-                        }.onFailure { loadError = true; isPreparing = false }
-                    } else {
-                        player.value?.start()
-                        isPlaying = true
-                    }
+                    if (player.value == null) startPlayback()
+                    else { player.value?.start(); isPlaying = true }
                 }
             }) {
                 if (isPreparing) {
