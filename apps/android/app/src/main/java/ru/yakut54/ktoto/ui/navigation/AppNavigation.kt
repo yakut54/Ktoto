@@ -15,6 +15,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import kotlinx.coroutines.flow.first
 import org.koin.compose.koinInject
 import ru.yakut54.ktoto.data.socket.SocketManager
 import ru.yakut54.ktoto.data.store.TokenStore
@@ -41,12 +42,22 @@ fun AppNavigation() {
     val currentUserId by tokenStore.userId.collectAsState(initial = "")
 
     val navController = rememberNavController()
-    val startDestination = if (token != null) Routes.CONVERSATIONS else Routes.AUTH
     val currentRoute by navController.currentBackStackEntryAsState()
 
-    // Auto-redirect to login when token is cleared (e.g. refresh token expired)
+    // On app start: read saved token from DataStore and skip login if valid
+    LaunchedEffect(Unit) {
+        val savedToken = tokenStore.accessToken.first()
+        if (!savedToken.isNullOrEmpty()) {
+            navController.navigate(Routes.CONVERSATIONS) {
+                popUpTo(Routes.AUTH) { inclusive = true }
+            }
+        }
+    }
+
+    // Auto-redirect to login when token is cleared at runtime (refresh token expired / logout)
     LaunchedEffect(token) {
-        if (token == null && currentRoute?.destination?.route != Routes.AUTH) {
+        val route = currentRoute?.destination?.route ?: return@LaunchedEffect
+        if (token == null && route != Routes.AUTH) {
             socketManager.disconnect()
             navController.navigate(Routes.AUTH) {
                 popUpTo(0) { inclusive = true }
@@ -56,7 +67,7 @@ fun AppNavigation() {
 
     NavHost(
         navController = navController,
-        startDestination = startDestination,
+        startDestination = Routes.AUTH,
         enterTransition = {
             slideInHorizontally(tween(220)) { it / 4 } + fadeIn(tween(220))
         },
