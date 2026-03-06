@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.media.MediaPlayer
 import android.net.Uri
-import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -92,8 +91,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -148,18 +145,24 @@ fun ChatScreen(
         if (editingMessage != null) text = editingMessage!!.content ?: ""
     }
 
+    val activity = context as? android.app.Activity
+
     var showAttachSheet by remember { mutableStateOf(false) }
     var recordingCancelHint by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf<String?>(null) }
+
+    // ── Permission state ───────────────────────────────────────────────────────
+    var showMicRationale by remember { mutableStateOf(false) }
+    var showMicSettings by remember { mutableStateOf(false) }
+    var showCameraRationale by remember { mutableStateOf(false) }
+    var showCameraSettings by remember { mutableStateOf(false) }
+    // pendingCamera: after permission granted — finish opening camera
+    var pendingCameraOpen by remember { mutableStateOf(false) }
 
     // Reset cancel hint when leaving RECORDING state
     LaunchedEffect(voiceState) {
         if (voiceState != VoiceState.RECORDING) recordingCancelHint = false
     }
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ -> }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
@@ -174,13 +177,61 @@ fun ChatScreen(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? -> uri?.let { vm.sendMediaMessage(context, it, "file") } }
 
+    // Mic permission launcher — called when permission not yet granted
+    val micPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            val canAsk = activity?.let {
+                androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.RECORD_AUDIO)
+            } ?: false
+            if (canAsk) showMicRationale = true else showMicSettings = true
+        }
+        // If granted: user will long-press mic again — natural UX, no auto-start
+    }
+
+    // Camera permission launcher
+    val cameraPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            pendingCameraOpen = true
+        } else {
+            val canAsk = activity?.let {
+                androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.CAMERA)
+            } ?: false
+            if (canAsk) showCameraRationale = true else showCameraSettings = true
+        }
+    }
+
+    // When camera permission was just granted, open the camera
+    LaunchedEffect(pendingCameraOpen) {
+        if (pendingCameraOpen) {
+            pendingCameraOpen = false
+            val photoFile = java.io.File(context.externalCacheDir, "photo_${System.currentTimeMillis()}.jpg")
+            cameraUri = androidx.core.content.FileProvider.getUriForFile(
+                context, "${context.packageName}.fileprovider", photoFile
+            )
+            cameraUri?.let { cameraLauncher.launch(it) }
+        }
+    }
+
     fun openCamera() {
-        permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA))
-        val photoFile = java.io.File(context.externalCacheDir, "photo_${System.currentTimeMillis()}.jpg")
-        cameraUri = androidx.core.content.FileProvider.getUriForFile(
-            context, "${context.packageName}.fileprovider", photoFile
-        )
-        cameraUri?.let { cameraLauncher.launch(it) }
+        val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+            context, Manifest.permission.CAMERA
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            val photoFile = java.io.File(context.externalCacheDir, "photo_${System.currentTimeMillis()}.jpg")
+            cameraUri = androidx.core.content.FileProvider.getUriForFile(
+                context, "${context.packageName}.fileprovider", photoFile
+            )
+            cameraUri?.let { cameraLauncher.launch(it) }
+        } else {
+            val canAsk = activity?.let {
+                androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.CAMERA)
+            } ?: false
+            if (canAsk) showCameraRationale = true else cameraPermLauncher.launch(Manifest.permission.CAMERA)
+        }
     }
 
     Scaffold(
@@ -418,10 +469,20 @@ fun ChatScreen(
                                                         ) { waitForUpOrCancellation() }
 
                                                         if (upBeforeLong == null) {
-                                                            // Long press confirmed → start recording
-                                                            permissionLauncher.launch(
-                                                                arrayOf(Manifest.permission.RECORD_AUDIO)
-                                                            )
+                                                            // Long press confirmed → check mic permission first
+                                                            val micGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+                                                                context, Manifest.permission.RECORD_AUDIO
+                                                            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                                            if (!micGranted) {
+                                                                val canAsk = activity?.let {
+                                                                    androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(
+                                                                        it, Manifest.permission.RECORD_AUDIO
+                                                                    )
+                                                                } ?: false
+                                                                if (canAsk) showMicRationale = true
+                                                                else micPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                                                return@awaitEachGesture
+                                                            }
                                                             vm.startRecording(context)
                                                             recordingCancelHint = false
 
@@ -666,11 +727,7 @@ fun ChatScreen(
                     label = "Галерея",
                     onClick = {
                         showAttachSheet = false
-                        if (Build.VERSION.SDK_INT >= 33) {
-                            permissionLauncher.launch(arrayOf(Manifest.permission.READ_MEDIA_IMAGES))
-                        } else {
-                            permissionLauncher.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE))
-                        }
+                        // PickVisualMedia is a system picker — no storage permission needed
                         imagePickerLauncher.launch(
                             androidx.activity.result.PickVisualMediaRequest(
                                 androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
@@ -688,6 +745,86 @@ fun ChatScreen(
                 )
             }
         }
+    }
+
+    // ── Permission dialogs ─────────────────────────────────────────────────────
+
+    // Mic: rationale (denied once, can ask again)
+    if (showMicRationale) {
+        AlertDialog(
+            onDismissRequest = { showMicRationale = false },
+            title = { Text("Доступ к микрофону") },
+            text = { Text("Для записи голосовых сообщений нужен доступ к микрофону.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showMicRationale = false
+                    micPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }) { Text("Разрешить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMicRationale = false }) { Text("Отмена") }
+            },
+        )
+    }
+
+    // Mic: permanently denied — send to settings
+    if (showMicSettings) {
+        AlertDialog(
+            onDismissRequest = { showMicSettings = false },
+            title = { Text("Доступ к микрофону") },
+            text = { Text("Доступ к микрофону запрещён. Разрешите его в настройках приложения.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showMicSettings = false
+                    context.startActivity(
+                        android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                            .apply { data = Uri.fromParts("package", context.packageName, null) }
+                    )
+                }) { Text("Настройки") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMicSettings = false }) { Text("Отмена") }
+            },
+        )
+    }
+
+    // Camera: rationale
+    if (showCameraRationale) {
+        AlertDialog(
+            onDismissRequest = { showCameraRationale = false },
+            title = { Text("Доступ к камере") },
+            text = { Text("Для съёмки фото нужен доступ к камере.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCameraRationale = false
+                    cameraPermLauncher.launch(Manifest.permission.CAMERA)
+                }) { Text("Разрешить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCameraRationale = false }) { Text("Отмена") }
+            },
+        )
+    }
+
+    // Camera: permanently denied — send to settings
+    if (showCameraSettings) {
+        AlertDialog(
+            onDismissRequest = { showCameraSettings = false },
+            title = { Text("Доступ к камере") },
+            text = { Text("Доступ к камере запрещён. Разрешите его в настройках приложения.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCameraSettings = false
+                    context.startActivity(
+                        android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                            .apply { data = Uri.fromParts("package", context.packageName, null) }
+                    )
+                }) { Text("Настройки") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCameraSettings = false }) { Text("Отмена") }
+            },
+        )
     }
 }
 
