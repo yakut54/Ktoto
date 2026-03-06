@@ -91,6 +91,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -1263,6 +1264,13 @@ private fun MessageBubble(
         else -> "text"
     }
 
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val maxBubbleWidth = when {
+        screenWidthDp <= 320 -> (screenWidthDp * 0.72f).dp
+        screenWidthDp <= 360 -> (screenWidthDp * 0.74f).dp
+        else -> minOf((screenWidthDp * 0.78f).dp, 300.dp)
+    }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
@@ -1273,7 +1281,7 @@ private fun MessageBubble(
         }
         Column(
             modifier = Modifier
-                .widthIn(max = 300.dp)
+                .widthIn(max = maxBubbleWidth)
                 .background(
                     color = if (effectiveType == "image") Color.Transparent else bubbleColor,
                     shape = RoundedCornerShape(
