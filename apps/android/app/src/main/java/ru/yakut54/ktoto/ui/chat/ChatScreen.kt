@@ -1024,6 +1024,7 @@ private fun FullscreenImageViewer(url: String, onDismiss: () -> Unit) {
 private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
     val att = message.attachment
     var isPlaying by remember { mutableStateOf(false) }
+    var isPreparing by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
     var loadError by remember { mutableStateOf(false) }
     val player = remember { mutableStateOf<MediaPlayer?>(null) }
@@ -1050,7 +1051,7 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = {
-                if (loadError) return@IconButton
+                if (loadError || isPreparing) return@IconButton
                 if (isPlaying) {
                     player.value?.pause()
                     isPlaying = false
@@ -1058,30 +1059,41 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
                     val url = att?.url
                     if (url.isNullOrBlank()) { loadError = true; return@IconButton }
                     if (player.value == null) {
+                        isPreparing = true
                         runCatching {
                             player.value = MediaPlayer().apply {
                                 setDataSource(url)
-                                setOnErrorListener { _, _, _ -> loadError = true; isPlaying = false; true }
-                                prepareAsync()
-                                setOnPreparedListener { start(); isPlaying = true }
+                                setOnErrorListener { _, _, _ ->
+                                    loadError = true; isPlaying = false; isPreparing = false; true
+                                }
+                                setOnPreparedListener { isPreparing = false; start(); isPlaying = true }
                                 setOnCompletionListener { isPlaying = false; progress = 0f }
+                                prepareAsync()
                             }
-                        }.onFailure { loadError = true }
+                        }.onFailure { loadError = true; isPreparing = false }
                     } else {
                         player.value?.start()
                         isPlaying = true
                     }
                 }
             }) {
-                Icon(
-                    imageVector = when {
-                        loadError -> Icons.Default.Close
-                        isPlaying -> Icons.Default.Pause
-                        else -> Icons.Default.PlayArrow
-                    },
-                    contentDescription = "Воспроизвести",
-                    tint = if (loadError) MaterialTheme.colorScheme.error else textColor,
-                )
+                if (isPreparing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp,
+                        color = textColor,
+                    )
+                } else {
+                    Icon(
+                        imageVector = when {
+                            loadError -> Icons.Default.Close
+                            isPlaying -> Icons.Default.Pause
+                            else -> Icons.Default.PlayArrow
+                        },
+                        contentDescription = "Воспроизвести",
+                        tint = if (loadError) MaterialTheme.colorScheme.error else textColor,
+                    )
+                }
             }
             Column(modifier = Modifier.weight(1f)) {
                 LinearProgressIndicator(
