@@ -208,7 +208,7 @@ class ChatViewModel(
                     "file", fileName, bytes.toRequestBody(mimeType.toMediaType())
                 )
                 val metaPart = Gson().toJson(mapOf("type" to type))
-                    .toRequestBody("application/json".toMediaType())
+                    .toRequestBody("text/plain".toMediaType())
                 _uploadProgress.value = 0.5f
                 val msg = api.uploadMessage("Bearer $token", conversationId, filePart, metaPart)
                 _uploadProgress.value = 1f
@@ -386,7 +386,7 @@ class ChatViewModel(
                     "file", file.name, file.asRequestBody("audio/mp4".toMediaType())
                 )
                 val metaPart = Gson().toJson(mapOf("type" to "voice", "duration" to duration))
-                    .toRequestBody("application/json".toMediaType())
+                    .toRequestBody("text/plain".toMediaType())
                 val msg = api.uploadMessage("Bearer $token", conversationId, filePart, metaPart)
                 // Add from API response, or update if WS already added it without full attachment
                 _messages.value = if (_messages.value.none { it.id == msg.id }) {

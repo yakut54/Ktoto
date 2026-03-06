@@ -364,6 +364,16 @@ export async function conversationRoutes(app: FastifyInstance) {
         let width: number | null = null
         let height: number | null = null
 
+        // Detect type by MIME if meta wasn't parsed (ensures valid file_type for DB CHECK constraint)
+        if (mimeType.startsWith('audio/')) {
+          msgType = 'voice'
+        } else if (mimeType.startsWith('video/')) {
+          msgType = 'video'
+        } else if (msgType === 'text' || !['image', 'video', 'voice', 'file'].includes(msgType)) {
+          // If still 'text' or unknown — treat as generic file
+          msgType = 'file'
+        }
+
         // Generate thumbnail for images
         if (msgType === 'image' || mimeType.startsWith('image/')) {
           msgType = 'image'
