@@ -106,13 +106,14 @@ import org.koin.androidx.compose.koinViewModel
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
-import androidx.compose.material.icons.filled.Redo
+
 import androidx.compose.material3.Checkbox
 import androidx.compose.foundation.Canvas
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import ru.yakut54.ktoto.data.model.Attachment
 import ru.yakut54.ktoto.data.model.Message
@@ -774,7 +775,6 @@ fun ChatScreen(
                             isMine = msg.sender.id == currentUserId,
                             allMessages = messages,
                             onLongClick = { selectionMode = true; selectedIds = setOf(msg.id) },
-                            onReply = { vm.setReplyTo(msg) },
                             onForward = { showForwardPicker = msg; vm.loadConversationsForPicker() },
                         )
                     }
@@ -1277,7 +1277,6 @@ private fun MessageBubble(
     isMine: Boolean,
     allMessages: List<Message> = emptyList(),
     onLongClick: () -> Unit = {},
-    onReply: (() -> Unit)? = null,
     onForward: (() -> Unit)? = null,
 ) {
     val bubbleColor = if (isMine) MaterialTheme.colorScheme.primary
@@ -1299,8 +1298,8 @@ private fun MessageBubble(
         horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (isMine && (onReply != null || onForward != null)) {
-            BubbleQuickActions(onReply = onReply, onForward = onForward)
+        if (isMine) {
+            BubbleQuickActions(onForward = onForward)
         }
         Column(
             modifier = Modifier
@@ -1390,8 +1389,8 @@ private fun MessageBubble(
                 }
             }
         }
-        if (!isMine && (onReply != null || onForward != null)) {
-            BubbleQuickActions(onReply = onReply, onForward = onForward)
+        if (!isMine) {
+            BubbleQuickActions(onForward = onForward)
         }
     }
 }
@@ -1750,31 +1749,15 @@ private fun formatFileSize(bytes: Long): String = when {
 }
 
 @Composable
-private fun BubbleQuickActions(
-    onReply: (() -> Unit)?,
-    onForward: (() -> Unit)?,
-) {
-    Row {
-        if (onReply != null) {
-            IconButton(onClick = onReply, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Reply,
-                    contentDescription = "Ответить",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-        }
-        if (onForward != null) {
-            IconButton(onClick = onForward, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    Icons.Default.Redo,
-                    contentDescription = "Переслать",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-        }
+private fun BubbleQuickActions(onForward: (() -> Unit)?) {
+    if (onForward == null) return
+    IconButton(onClick = onForward, modifier = Modifier.size(32.dp)) {
+        Icon(
+            Icons.AutoMirrored.Filled.Reply,
+            contentDescription = "Переслать",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+            modifier = Modifier.size(18.dp).graphicsLayer { scaleX = -1f },
+        )
     }
 }
 
