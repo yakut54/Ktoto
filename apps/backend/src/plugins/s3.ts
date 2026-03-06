@@ -18,18 +18,23 @@ export const s3Plugin = fp(async (app: FastifyInstance) => {
   const publicEndpoint = process.env.MINIO_PUBLIC_ENDPOINT ?? internalEndpoint
   app.log.info(`[S3] internalEndpoint=${internalEndpoint}  publicEndpoint=${publicEndpoint}`)
 
-  const client = new S3Client({
-    endpoint: internalEndpoint,
+  const credentials = {
+    accessKeyId: process.env.MINIO_ROOT_USER ?? 'ktoto',
+    secretAccessKey: process.env.MINIO_ROOT_PASSWORD ?? 'ktoto-minio-2026',
+  }
+  const clientOpts = {
     region: 'us-east-1',
-    credentials: {
-      accessKeyId: process.env.MINIO_ROOT_USER ?? 'ktoto',
-      secretAccessKey: process.env.MINIO_ROOT_PASSWORD ?? 'ktoto-minio-2026',
-    },
-    forcePathStyle: true, // required for MinIO
-    // AWS SDK v3.577+ adds checksum headers that MinIO doesn't support
-    requestChecksumCalculation: 'WHEN_REQUIRED',
-    responseChecksumValidation: 'WHEN_REQUIRED',
-  })
+    credentials,
+    forcePathStyle: true,
+    requestChecksumCalculation: 'WHEN_REQUIRED' as const,
+    responseChecksumValidation: 'WHEN_REQUIRED' as const,
+  }
+
+  // Internal client — used for upload (talks to minio container directly)
+  const client = new S3Client({ ...clientOpts, endpoint: internalEndpoint })
+
+  // Public client — used for presigned URLs (signs with public host so signature is valid for clients)
+  const publicClient = new S3Client({ ...clientOpts, endpoint: publicEndpoint })
 
   // Ensure bucket exists (retry up to 5 times — MinIO may not be ready instantly)
   for (let attempt = 1; attempt <= 5; attempt++) {
@@ -68,13 +73,13 @@ export const s3Plugin = fp(async (app: FastifyInstance) => {
   }
 
   async function presignedUrl(key: string, ttlSeconds = 3600): Promise<string> {
-    const raw = await getSignedUrl(
-      client,
+    // Sign with publicClient — signature includes public host, so URL is valid for clients
+    const url = await getSignedUrl(
+      publicClient,
       new GetObjectCommand({ Bucket: BUCKET, Key: key }),
       { expiresIn: ttlSeconds },
     )
-    const url = raw.replace(internalEndpoint, publicEndpoint)
-    app.log.info(`[S3] presignedUrl key=${key}  raw=${raw.substring(0, 80)}...  final=${url.substring(0, 80)}...`)
+    app.log.info(`[S3] presignedUrl key=${key}  url=${url.substring(0, 100)}...`)
     return url
   }
 
