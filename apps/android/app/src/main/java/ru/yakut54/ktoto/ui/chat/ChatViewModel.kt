@@ -26,8 +26,8 @@ import ru.yakut54.ktoto.data.socket.SocketManager
 import ru.yakut54.ktoto.data.store.TokenStore
 import java.io.File
 
-/** Voice recording state machine: IDLE → RECORDING → LOCKED | PREVIEW → IDLE */
-enum class VoiceState { IDLE, RECORDING, LOCKED, PREVIEW }
+/** Voice recording state machine: IDLE → RECORDING → LOCKED ↔ PAUSED | PREVIEW → IDLE */
+enum class VoiceState { IDLE, RECORDING, LOCKED, PAUSED, PREVIEW }
 
 class ChatViewModel(
     private val api: ApiService,
@@ -293,7 +293,7 @@ class ChatViewModel(
      * User can listen, then send or delete.
      */
     fun stopRecordingToPreview() {
-        if (_voiceState.value !in listOf(VoiceState.RECORDING, VoiceState.LOCKED)) return
+        if (_voiceState.value !in listOf(VoiceState.RECORDING, VoiceState.LOCKED, VoiceState.PAUSED)) return
         recordingTimerJob?.cancel()
         _previewDuration.value = _recordingSeconds.value
         stopRecorder()
@@ -314,9 +314,27 @@ class ChatViewModel(
 
     // ── Voice: locked mode actions ─────────────────────────────────────────────
 
-    /** Tap ▶ in LOCKED bar → stops recording and sends immediately (no preview) */
-    fun sendVoiceFromLocked() {
+    /** Tap ⏸ in LOCKED bar → pauses recording, timer stops */
+    fun pauseRecording() {
         if (_voiceState.value != VoiceState.LOCKED) return
+        recordingTimerJob?.cancel()
+        recorder?.pause()
+        _voiceState.value = VoiceState.PAUSED
+    }
+
+    /** Tap ▶ in PAUSED bar → resumes recording, timer continues */
+    fun resumeRecording() {
+        if (_voiceState.value != VoiceState.PAUSED) return
+        recorder?.resume()
+        _voiceState.value = VoiceState.LOCKED
+        recordingTimerJob = viewModelScope.launch {
+            while (true) { delay(1000); _recordingSeconds.value++ }
+        }
+    }
+
+    /** Tap ▶ in LOCKED/PAUSED bar → stops recording and sends immediately (no preview) */
+    fun sendVoiceFromLocked() {
+        if (_voiceState.value !in listOf(VoiceState.LOCKED, VoiceState.PAUSED)) return
         recordingTimerJob?.cancel()
         val duration = _recordingSeconds.value
         stopRecorder()

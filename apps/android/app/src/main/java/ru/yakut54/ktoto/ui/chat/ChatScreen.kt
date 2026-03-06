@@ -311,7 +311,18 @@ fun ChatScreen(
                     // ── LOCKED: recording without holding ───────────────────────────────
                     VoiceState.LOCKED -> LockedRecordingBar(
                         seconds = recordingSeconds,
+                        isPaused = false,
                         onCancel = { vm.cancelRecording() },
+                        onPauseResume = { vm.pauseRecording() },
+                        onSend = { vm.sendVoiceFromLocked() },
+                    )
+
+                    // ── PAUSED: recording suspended ──────────────────────────────────────
+                    VoiceState.PAUSED -> LockedRecordingBar(
+                        seconds = recordingSeconds,
+                        isPaused = true,
+                        onCancel = { vm.cancelRecording() },
+                        onPauseResume = { vm.resumeRecording() },
                         onSend = { vm.sendVoiceFromLocked() },
                     )
 
@@ -1113,7 +1124,9 @@ fun ChatScreen(
 @Composable
 private fun LockedRecordingBar(
     seconds: Int,
+    isPaused: Boolean,
     onCancel: () -> Unit,
+    onPauseResume: () -> Unit,
     onSend: () -> Unit,
 ) {
     Row(
@@ -1128,16 +1141,25 @@ private fun LockedRecordingBar(
         Icon(
             Icons.Default.Lock,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.error,
+            tint = if (isPaused) MaterialTheme.colorScheme.onSurfaceVariant
+                   else MaterialTheme.colorScheme.error,
             modifier = Modifier.size(20.dp),
         )
         Spacer(Modifier.width(8.dp))
-        // Red dot + timer
+        // Red dot (blinks when recording, grey when paused) + timer
         Box(
-            Modifier.size(8.dp).clip(CircleShape).background(Color.Red)
+            Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(if (isPaused) Color.Gray else Color.Red),
         )
         Spacer(Modifier.width(6.dp))
-        Text(formatDuration(seconds), style = MaterialTheme.typography.bodyMedium)
+        Text(
+            formatDuration(seconds),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isPaused) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.onSurface,
+        )
         Spacer(Modifier.weight(1f))
         // ❌ Cancel
         IconButton(onClick = onCancel) {
@@ -1147,7 +1169,15 @@ private fun LockedRecordingBar(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        // ▶ Send immediately
+        // ⏸/▶ Pause / Resume
+        IconButton(onClick = onPauseResume) {
+            Icon(
+                imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                contentDescription = if (isPaused) "Возобновить" else "Пауза",
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+        // ✓ Send immediately
         FilledIconButton(onClick = onSend, modifier = Modifier.size(48.dp)) {
             Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Отправить")
         }
