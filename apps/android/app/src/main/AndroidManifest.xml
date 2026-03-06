@@ -29,7 +29,7 @@
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/Theme.Ktoto"
-            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize|density">
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize|density|uiMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
