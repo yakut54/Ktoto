@@ -100,6 +100,7 @@ class ChatViewModel(
 
     // ── Internal ───────────────────────────────────────────────────────────────
     private var conversationId: String = ""
+    private var currentUserId: String = ""
     private var recorder: MediaRecorder? = null
 
     /**
@@ -123,6 +124,7 @@ class ChatViewModel(
 
     fun init(convId: String) {
         conversationId = convId
+        viewModelScope.launch { currentUserId = tokenStore.userId.first() }
         loadHistory()
         subscribeToMessages()
     }
@@ -143,6 +145,7 @@ class ChatViewModel(
                 .collect { msg ->
                     if (_messages.value.none { it.id == msg.id }) {
                         _messages.value = _messages.value + msg
+                        markConversationRead()
                     }
                 }
         }
@@ -170,6 +173,17 @@ class ChatViewModel(
                 .filter { it.second == conversationId }
                 .collect { (msgId, _) ->
                     _messages.value = _messages.value.filter { it.id != msgId }
+                }
+        }
+        viewModelScope.launch {
+            socketManager.messagesRead
+                .filter { it.conversationId == conversationId && it.readerId != currentUserId }
+                .collect { event ->
+                    _messages.value = _messages.value.map { msg ->
+                        if (msg.sender.id == currentUserId && !msg.readByOthers && msg.createdAt <= event.readAt)
+                            msg.copy(readByOthers = true)
+                        else msg
+                    }
                 }
         }
     }
@@ -465,6 +479,15 @@ class ChatViewModel(
     fun deleteVoicePreview() = cancelRecording()
 
     // ── Typing ─────────────────────────────────────────────────────────────────
+
+    fun markConversationRead() {
+        viewModelScope.launch {
+            runCatching {
+                val token = tokenStore.accessToken.first() ?: return@launch
+                api.markConversationRead("Bearer $token", conversationId)
+            }
+        }
+    }
 
     fun notifyTyping() {
         socketManager.sendTyping(conversationId)

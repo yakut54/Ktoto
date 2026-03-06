@@ -88,6 +88,12 @@ interface ApiService {
         @Path("convId") conversationId: String,
         @Path("msgId") messageId: String,
     )
+
+    @POST("api/conversations/{id}/read")
+    suspend fun markConversationRead(
+        @Header("Authorization") token: String,
+        @Path("id") conversationId: String,
+    ): Map<String, Any>
 }
 
 fun buildApiService(baseUrl: String, tokenStore: TokenStore): ApiService {

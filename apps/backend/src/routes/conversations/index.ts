@@ -255,12 +255,27 @@ export async function conversationRoutes(app: FastifyInstance) {
         [convId, limit, before],
       )
 
-      // Mark messages as read
+      // Mark messages as read + emit WS event
       await app.pg.query(
         `UPDATE conversation_participants SET last_read_at = NOW()
          WHERE conversation_id=$1 AND user_id=$2`,
         [convId, userId],
       )
+
+      const otherRead = await app.pg.query<{ max_read_at: string | null }>(
+        `SELECT MAX(last_read_at) AS max_read_at FROM conversation_participants
+         WHERE conversation_id=$1 AND user_id != $2`,
+        [convId, userId],
+      )
+      const maxOtherReadAt = otherRead.rows[0]?.max_read_at ?? null
+
+      const readAt = new Date().toISOString()
+      const participantsForRead = await app.pg.query<{ user_id: string }>(
+        `SELECT user_id FROM conversation_participants WHERE conversation_id=$1`, [convId],
+      )
+      for (const p of participantsForRead.rows) {
+        app.io.to(`user:${p.user_id}`).emit('messages_read', { conversationId: convId, readerId: userId, readAt })
+      }
 
       const result = await Promise.all(
         rows.reverse().map(async (r) => {
@@ -289,6 +304,7 @@ export async function conversationRoutes(app: FastifyInstance) {
             sender: { id: r.user_id, username: r.username, avatarUrl: r.avatar_url },
             conversationId: convId,
             attachment,
+            readByOthers: maxOtherReadAt !== null && r.user_id === userId && r.created_at <= maxOtherReadAt,
           }
         }),
       )
@@ -584,6 +600,35 @@ export async function conversationRoutes(app: FastifyInstance) {
       }
     },
   )
+
+  // ----------------------------------------------------------------
+  // POST /api/conversations/:id/read  — mark conversation as read
+  // ----------------------------------------------------------------
+  app.post<{ Params: MessageParams }>('/:id/read', async (request, reply) => {
+    const { userId } = request.user
+    const { id: convId } = request.params
+
+    const access = await app.pg.query(
+      `SELECT 1 FROM conversation_participants WHERE conversation_id=$1 AND user_id=$2`,
+      [convId, userId],
+    )
+    if (!access.rows[0]) return reply.status(403).send({ error: 'Forbidden' })
+
+    await app.pg.query(
+      `UPDATE conversation_participants SET last_read_at = NOW() WHERE conversation_id=$1 AND user_id=$2`,
+      [convId, userId],
+    )
+
+    const readAt = new Date().toISOString()
+    const participants = await app.pg.query<{ user_id: string }>(
+      `SELECT user_id FROM conversation_participants WHERE conversation_id=$1`, [convId],
+    )
+    for (const p of participants.rows) {
+      app.io.to(`user:${p.user_id}`).emit('messages_read', { conversationId: convId, readerId: userId, readAt })
+    }
+
+    return { ok: true }
+  })
 
   // ----------------------------------------------------------------
   // PATCH /api/conversations/:id/messages/:msgId  — edit message text

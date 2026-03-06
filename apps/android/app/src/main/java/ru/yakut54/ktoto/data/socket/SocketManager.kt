@@ -6,6 +6,7 @@ import io.socket.client.Socket
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import ru.yakut54.ktoto.data.model.Message
+import ru.yakut54.ktoto.data.model.MessagesReadEvent
 
 class SocketManager {
 
@@ -24,6 +25,9 @@ class SocketManager {
     /** Pair(msgId, conversationId) */
     private val _deletedMessageIds = MutableSharedFlow<Pair<String, String>>(extraBufferCapacity = 64)
     val deletedMessageIds = _deletedMessageIds.asSharedFlow()
+
+    private val _messagesRead = MutableSharedFlow<MessagesReadEvent>(extraBufferCapacity = 64)
+    val messagesRead = _messagesRead.asSharedFlow()
 
     fun connect(token: String) {
         if (socket?.connected() == true) return
@@ -63,6 +67,12 @@ class SocketManager {
                     _deletedMessageIds.tryEmit(msgId to convId)
                 }
                     .onFailure { android.util.Log.e("SocketManager", "message_deleted parse error", it) }
+            }
+            on("messages_read") { args ->
+                val json = args[0].toString()
+                runCatching { gson.fromJson(json, MessagesReadEvent::class.java) }
+                    .onSuccess { _messagesRead.tryEmit(it) }
+                    .onFailure { android.util.Log.e("SocketManager", "messages_read parse error: $json", it) }
             }
             connect()
         }

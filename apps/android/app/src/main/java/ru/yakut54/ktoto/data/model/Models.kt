@@ -57,6 +57,13 @@ data class Message(
     val sender: Sender,
     val conversationId: String,
     val attachment: Attachment? = null,
+    val readByOthers: Boolean = false,
+)
+
+data class MessagesReadEvent(
+    val conversationId: String,
+    val readerId: String,
+    val readAt: String,
 )
 
 data class Sender(

@@ -105,6 +105,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.androidx.compose.koinViewModel
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -671,6 +673,7 @@ fun ChatScreen(
     ) { padding ->
         LazyColumn(
             state = listState,
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 8.dp),
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
@@ -1431,6 +1434,14 @@ private fun MessageBubble(message: Message, isMine: Boolean, allMessages: List<M
                             fontSize = 10.sp,
                             color = textColor.copy(alpha = 0.6f),
                         )
+                        if (isMine) {
+                            Icon(
+                                imageVector = if (message.readByOthers) Icons.Default.DoneAll else Icons.Default.Done,
+                                contentDescription = null,
+                                tint = if (message.readByOthers) textColor else textColor.copy(alpha = 0.5f),
+                                modifier = Modifier.size(14.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -1474,16 +1485,29 @@ private fun ImageBubble(message: Message, isMine: Boolean, bubbleColor: Color, t
                 contentAlignment = Alignment.Center,
             ) { CircularProgressIndicator() }
         }
-        Text(
-            text = formatMessageTime(message.createdAt),
-            fontSize = 10.sp,
-            color = Color.White,
+        Row(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(4.dp)
                 .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
                 .padding(horizontal = 4.dp, vertical = 2.dp),
-        )
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(
+                text = formatMessageTime(message.createdAt),
+                fontSize = 10.sp,
+                color = Color.White,
+            )
+            if (isMine) {
+                Icon(
+                    imageVector = if (message.readByOthers) Icons.Default.DoneAll else Icons.Default.Done,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(12.dp),
+                )
+            }
+        }
     }
 
     if (showFullscreen && att?.url != null) {
@@ -1612,7 +1636,7 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
         }
     }
 
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 2.dp)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1667,7 +1691,7 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
                             isSeeking = false
                         },
                         enabled = !isPreparing && player.value != null,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                         colors = SliderDefaults.colors(
                             thumbColor = textColor,
                             activeTrackColor = textColor,
@@ -1687,12 +1711,25 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
                 )
             }
         }
-        Text(
-            text = formatMessageTime(message.createdAt),
-            fontSize = 10.sp,
-            color = textColor.copy(alpha = 0.6f),
+        Row(
             modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
-        )
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = formatMessageTime(message.createdAt),
+                fontSize = 10.sp,
+                color = textColor.copy(alpha = 0.6f),
+            )
+            if (isMine) {
+                Icon(
+                    imageVector = if (message.readByOthers) Icons.Default.DoneAll else Icons.Default.Done,
+                    contentDescription = null,
+                    tint = if (message.readByOthers) textColor else textColor.copy(alpha = 0.5f),
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        }
     }
 }
 
@@ -1740,12 +1777,25 @@ private fun FileBubble(message: Message, isMine: Boolean, textColor: Color) {
                 }
             }
         }
-        Text(
-            text = formatMessageTime(message.createdAt),
-            fontSize = 10.sp,
-            color = textColor.copy(alpha = 0.6f),
+        Row(
             modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
-        )
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = formatMessageTime(message.createdAt),
+                fontSize = 10.sp,
+                color = textColor.copy(alpha = 0.6f),
+            )
+            if (isMine) {
+                Icon(
+                    imageVector = if (message.readByOthers) Icons.Default.DoneAll else Icons.Default.Done,
+                    contentDescription = null,
+                    tint = if (message.readByOthers) textColor else textColor.copy(alpha = 0.5f),
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        }
     }
 }
 
