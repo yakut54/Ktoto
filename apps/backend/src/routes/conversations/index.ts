@@ -337,10 +337,12 @@ export async function conversationRoutes(app: FastifyInstance) {
         let duration: number | null = null
 
         for await (const part of parts) {
+          app.log.info(`[upload] part: type=${part.type} fieldname=${part.fieldname} ${part.type === 'file' ? `filename=${part.filename} mimetype=${part.mimetype}` : `value=${JSON.stringify(part.value).substring(0, 200)}`}`)
           if (part.type === 'file') {
             fileName = part.filename || 'file'
             mimeType = part.mimetype || 'application/octet-stream'
             fileBuffer = await streamToBuffer(part.file)
+            app.log.info(`[upload] file buffered: name=${fileName} mime=${mimeType} size=${fileBuffer.byteLength}`)
           } else if (part.type === 'field' && part.fieldname === 'meta') {
             try {
               const meta = JSON.parse(part.value as string)
@@ -348,12 +350,14 @@ export async function conversationRoutes(app: FastifyInstance) {
               msgType = meta.type ?? 'file'
               replyToId = meta.reply_to_id ?? null
               duration = meta.duration ?? null
-            } catch {
-              // ignore parse errors
+              app.log.info(`[upload] meta parsed: msgType=${msgType} duration=${duration} replyToId=${replyToId}`)
+            } catch (e) {
+              app.log.warn(`[upload] meta parse failed: raw=${JSON.stringify(part.value)} err=${e}`)
             }
           }
         }
 
+        app.log.info(`[upload] after parts: fileBuffer=${fileBuffer ? fileBuffer.byteLength : 'NULL'} msgType=${msgType} mimeType=${mimeType}`)
         if (!fileBuffer) return reply.status(400).send({ error: 'file required' })
 
         const ext = fileName.split('.').pop() ?? 'bin'
@@ -365,14 +369,15 @@ export async function conversationRoutes(app: FastifyInstance) {
         let height: number | null = null
 
         // Detect type by MIME if meta wasn't parsed (ensures valid file_type for DB CHECK constraint)
+        const msgTypeBefore = msgType
         if (mimeType.startsWith('audio/')) {
           msgType = 'voice'
         } else if (mimeType.startsWith('video/')) {
           msgType = 'video'
         } else if (msgType === 'text' || !['image', 'video', 'voice', 'file'].includes(msgType)) {
-          // If still 'text' or unknown — treat as generic file
           msgType = 'file'
         }
+        app.log.info(`[upload] type detection: before=${msgTypeBefore} after=${msgType} mime=${mimeType}`)
 
         // Generate thumbnail for images
         if (msgType === 'image' || mimeType.startsWith('image/')) {

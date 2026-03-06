@@ -16,6 +16,7 @@ export const s3Plugin = fp(async (app: FastifyInstance) => {
   const internalEndpoint = process.env.MINIO_ENDPOINT ?? 'http://minio:9000'
   // Public endpoint is used in presigned URLs so Android/clients can download files
   const publicEndpoint = process.env.MINIO_PUBLIC_ENDPOINT ?? internalEndpoint
+  app.log.info(`[S3] internalEndpoint=${internalEndpoint}  publicEndpoint=${publicEndpoint}`)
 
   const client = new S3Client({
     endpoint: internalEndpoint,
@@ -67,13 +68,14 @@ export const s3Plugin = fp(async (app: FastifyInstance) => {
   }
 
   async function presignedUrl(key: string, ttlSeconds = 3600): Promise<string> {
-    const url = await getSignedUrl(
+    const raw = await getSignedUrl(
       client,
       new GetObjectCommand({ Bucket: BUCKET, Key: key }),
       { expiresIn: ttlSeconds },
     )
-    // Replace internal endpoint with public endpoint in the URL
-    return url.replace(internalEndpoint, publicEndpoint)
+    const url = raw.replace(internalEndpoint, publicEndpoint)
+    app.log.info(`[S3] presignedUrl key=${key}  raw=${raw.substring(0, 80)}...  final=${url.substring(0, 80)}...`)
+    return url
   }
 
   app.decorate('s3', { upload, presignedUrl })

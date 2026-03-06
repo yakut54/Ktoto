@@ -1051,35 +1051,58 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
     }
 
     fun startPlayback() {
-        val url = att?.url ?: run { loadError = true; return }
+        val TAG = "VoiceBubble"
+        val url = att?.url ?: run {
+            android.util.Log.e(TAG, "startPlayback: att.url is NULL, att=$att, message.id=${message.id}")
+            loadError = true; return
+        }
+        android.util.Log.d(TAG, "startPlayback: url=$url  msgId=${message.id}")
         isPreparing = true
         scope.launch {
             try {
-                // Download to cache first — avoids MediaPlayer HTTP streaming issues
                 val cacheFile = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     val file = java.io.File(context.cacheDir, "voice_${message.id}.m4a")
+                    android.util.Log.d(TAG, "cacheFile=${file.absolutePath} exists=${file.exists()} size=${file.length()}")
                     if (!file.exists() || file.length() == 0L) {
-                        val client = okhttp3.OkHttpClient()
+                        android.util.Log.d(TAG, "Downloading from $url")
+                        val client = okhttp3.OkHttpClient.Builder()
+                            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                            .build()
                         val req = okhttp3.Request.Builder().url(url).build()
                         client.newCall(req).execute().use { resp ->
-                            if (!resp.isSuccessful) throw Exception("HTTP ${resp.code}")
+                            android.util.Log.d(TAG, "HTTP response: ${resp.code} ${resp.message} contentType=${resp.body?.contentType()}")
+                            if (!resp.isSuccessful) {
+                                val body = resp.body?.string() ?: ""
+                                android.util.Log.e(TAG, "HTTP error ${resp.code}: $body")
+                                throw Exception("HTTP ${resp.code}: $body")
+                            }
                             resp.body?.byteStream()?.use { input ->
                                 file.outputStream().use { out -> input.copyTo(out) }
                             }
+                            android.util.Log.d(TAG, "Downloaded OK, file size=${file.length()}")
                         }
+                    } else {
+                        android.util.Log.d(TAG, "Using cached file, size=${file.length()}")
                     }
                     file
                 }
+                android.util.Log.d(TAG, "Creating MediaPlayer from ${cacheFile.absolutePath}")
                 player.value = MediaPlayer().apply {
                     setDataSource(cacheFile.absolutePath)
-                    setOnErrorListener { _, _, _ ->
+                    setOnErrorListener { _, what, extra ->
+                        android.util.Log.e(TAG, "MediaPlayer.onError what=$what extra=$extra")
                         loadError = true; isPlaying = false; isPreparing = false; true
                     }
-                    setOnPreparedListener { isPreparing = false; start(); isPlaying = true }
-                    setOnCompletionListener { isPlaying = false; progress = 0f }
+                    setOnPreparedListener {
+                        android.util.Log.d(TAG, "MediaPlayer prepared, starting playback duration=${it.duration}ms")
+                        isPreparing = false; start(); isPlaying = true
+                    }
+                    setOnCompletionListener { android.util.Log.d(TAG, "Playback completed"); isPlaying = false; progress = 0f }
                     prepareAsync()
                 }
             } catch (e: Exception) {
+                android.util.Log.e(TAG, "startPlayback FAILED", e)
                 loadError = true; isPreparing = false
             }
         }
