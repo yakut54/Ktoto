@@ -107,12 +107,16 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 
-import androidx.compose.material3.Checkbox
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 
 import ru.yakut54.ktoto.data.model.Attachment
@@ -728,13 +732,9 @@ fun ChatScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Checkbox(
+                            TelegramCheckbox(
                                 checked = isBulkSelected,
-                                onCheckedChange = { checked ->
-                                    selectedIds = if (checked) selectedIds + msg.id else selectedIds - msg.id
-                                    if (selectedIds.isEmpty()) selectionMode = false
-                                },
-                                modifier = Modifier.padding(start = 4.dp),
+                                modifier = Modifier.padding(start = 8.dp),
                             )
                             MessageBubble(
                                 message = msg,
@@ -1734,6 +1734,46 @@ private fun BubbleQuickActions(onForward: (() -> Unit)?) {
             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
             modifier = Modifier.size(18.dp).graphicsLayer { scaleX = -1f },
         )
+    }
+}
+
+@Composable
+private fun TelegramCheckbox(
+    checked: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val color by animateColorAsState(
+        targetValue = if (checked) Color(0xFF4CAF50) else Color.Transparent,
+        animationSpec = spring(),
+        label = "cbColor",
+    )
+    val checkAlpha by animateFloatAsState(
+        targetValue = if (checked) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 500f),
+        label = "cbAlpha",
+    )
+    val strokeColor = if (checked) Color(0xFF4CAF50) else Color.White.copy(alpha = 0.85f)
+    Canvas(modifier = modifier.size(24.dp)) {
+        val r = size.minDimension / 2f
+        val center = Offset(r, r)
+        // fill
+        drawCircle(color = color, radius = r, center = center)
+        // border
+        drawCircle(color = strokeColor, radius = r - 1.dp.toPx(), center = center, style = Stroke(width = 2.dp.toPx()))
+        // checkmark
+        if (checkAlpha > 0f) {
+            val sw = 2.dp.toPx()
+            val path = androidx.compose.ui.graphics.Path().apply {
+                moveTo(center.x - r * 0.35f, center.y)
+                lineTo(center.x - r * 0.05f, center.y + r * 0.3f)
+                lineTo(center.x + r * 0.4f, center.y - r * 0.3f)
+            }
+            drawPath(
+                path = path,
+                color = Color.White.copy(alpha = checkAlpha),
+                style = Stroke(width = sw, cap = StrokeCap.Round, join = StrokeJoin.Round),
+            )
+        }
     }
 }
 
