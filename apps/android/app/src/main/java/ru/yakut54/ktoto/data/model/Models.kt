@@ -58,6 +58,8 @@ data class Message(
     val conversationId: String,
     val attachment: Attachment? = null,
     val readByOthers: Boolean = false,
+    /** false = optimistic (sent locally, not yet confirmed by server) */
+    val isDelivered: Boolean = true,
 )
 
 data class MessagesReadEvent(

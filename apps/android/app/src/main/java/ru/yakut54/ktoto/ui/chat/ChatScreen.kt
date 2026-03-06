@@ -1434,14 +1434,7 @@ private fun MessageBubble(message: Message, isMine: Boolean, allMessages: List<M
                             fontSize = 10.sp,
                             color = textColor.copy(alpha = 0.6f),
                         )
-                        if (isMine) {
-                            Icon(
-                                imageVector = if (message.readByOthers) Icons.Default.DoneAll else Icons.Default.Done,
-                                contentDescription = null,
-                                tint = if (message.readByOthers) textColor else textColor.copy(alpha = 0.5f),
-                                modifier = Modifier.size(14.dp),
-                            )
-                        }
+                        if (isMine) { DeliveryIcon(message, textColor) }
                     }
                 }
             }
@@ -1499,14 +1492,7 @@ private fun ImageBubble(message: Message, isMine: Boolean, bubbleColor: Color, t
                 fontSize = 10.sp,
                 color = Color.White,
             )
-            if (isMine) {
-                Icon(
-                    imageVector = if (message.readByOthers) Icons.Default.DoneAll else Icons.Default.Done,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(12.dp),
-                )
-            }
+            if (isMine) { DeliveryIcon(message, Color.White) }
         }
     }
 
@@ -1818,4 +1804,24 @@ private fun formatFileSize(bytes: Long): String = when {
     bytes < 1024 -> "$bytes Б"
     bytes < 1024 * 1024 -> "${bytes / 1024} КБ"
     else -> "%.1f МБ".format(bytes / (1024.0 * 1024.0))
+}
+
+/**
+ * Returns the correct delivery-status icon for own messages:
+ *  !isDelivered → Done (1 gray)  = still sending
+ *  isDelivered && !readByOthers → DoneAll (2 gray) = delivered to server
+ *  isDelivered && readByOthers  → DoneAll (2 bright) = read by recipient
+ */
+@Composable
+private fun DeliveryIcon(message: ru.yakut54.ktoto.data.model.Message, textColor: Color) {
+    Icon(
+        imageVector = if (message.isDelivered) Icons.Default.DoneAll else Icons.Default.Done,
+        contentDescription = null,
+        tint = when {
+            !message.isDelivered -> textColor.copy(alpha = 0.45f)
+            message.readByOthers -> textColor
+            else -> textColor.copy(alpha = 0.45f)
+        },
+        modifier = Modifier.size(14.dp),
+    )
 }

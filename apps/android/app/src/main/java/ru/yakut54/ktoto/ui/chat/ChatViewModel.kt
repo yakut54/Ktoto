@@ -28,6 +28,8 @@ import ru.yakut54.ktoto.data.api.ApiService
 import ru.yakut54.ktoto.data.model.EditMessageRequest
 import ru.yakut54.ktoto.data.model.Message
 import ru.yakut54.ktoto.data.model.SendMessageRequest
+import ru.yakut54.ktoto.data.model.Sender
+import java.time.Instant
 import ru.yakut54.ktoto.data.socket.SocketManager
 import ru.yakut54.ktoto.data.store.TokenStore
 import java.io.File
@@ -101,6 +103,7 @@ class ChatViewModel(
     // ── Internal ───────────────────────────────────────────────────────────────
     private var conversationId: String = ""
     private var currentUserId: String = ""
+    private var currentUsername: String = ""
     private var recorder: MediaRecorder? = null
 
     /**
@@ -124,7 +127,10 @@ class ChatViewModel(
 
     fun init(convId: String) {
         conversationId = convId
-        viewModelScope.launch { currentUserId = tokenStore.userId.first() }
+        viewModelScope.launch {
+            currentUserId = tokenStore.userId.first()
+            currentUsername = tokenStore.username.first() ?: ""
+        }
         loadHistory()
         subscribeToMessages()
     }
@@ -193,19 +199,43 @@ class ChatViewModel(
     fun sendMessage(content: String) {
         if (content.isBlank()) return
         val replyId = _replyTo.value?.id
+        _replyTo.value = null
+
+        // Optimistic: show message immediately with isDelivered=false (1 gray check)
+        val tempId = "temp_${System.currentTimeMillis()}"
+        val optimistic = Message(
+            id = tempId,
+            content = content,
+            type = "text",
+            createdAt = Instant.now().toString(),
+            editedAt = null,
+            replyToId = replyId,
+            sender = Sender(id = currentUserId, username = currentUsername, avatarUrl = null),
+            conversationId = conversationId,
+            isDelivered = false,
+        )
+        _messages.value = _messages.value + optimistic
+
         viewModelScope.launch {
-            _sending.value = true
             runCatching {
-                val token = tokenStore.accessToken.first() ?: return@launch
+                val token = tokenStore.accessToken.first() ?: run {
+                    _messages.value = _messages.value.filter { it.id != tempId }
+                    return@launch
+                }
                 val msg = api.sendMessage(
                     "Bearer $token", conversationId,
                     SendMessageRequest(content, reply_to_id = replyId),
                 )
-                if (_messages.value.none { it.id == msg.id }) _messages.value = _messages.value + msg
+                // Replace optimistic with confirmed message (isDelivered=true by default)
+                _messages.value = _messages.value
+                    .filter { it.id != tempId }
+                    .let { list -> if (list.none { it.id == msg.id }) list + msg else list }
+            }.onFailure {
+                // Remove optimistic on failure
+                _messages.value = _messages.value.filter { it.id != tempId }
+                android.util.Log.e("ChatViewModel", "sendMessage failed", it)
             }
-            _sending.value = false
         }
-        _replyTo.value = null
     }
 
     fun selectMessage(msg: Message) { _selectedMessage.value = msg }
