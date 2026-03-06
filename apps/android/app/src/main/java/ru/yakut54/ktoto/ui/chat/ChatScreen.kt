@@ -126,6 +126,7 @@ fun ChatScreen(
     conversationName: String,
     currentUserId: String,
     onBack: () -> Unit,
+    onNavigateToChat: (convId: String, convName: String) -> Unit = { _, _ -> },
 ) {
     val vm: ChatViewModel = koinViewModel()
     val messages by vm.messages.collectAsState()
@@ -845,6 +846,7 @@ fun ChatScreen(
                             .combinedClickable(onClick = {
                                 vm.forwardMessage(msgToForward, conv.id)
                                 showForwardPicker = null
+                                onNavigateToChat(conv.id, conv.name ?: "Чат")
                             })
                             .padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1010,6 +1012,7 @@ fun ChatScreen(
                                 msgsToForward.forEach { m -> vm.forwardMessage(m, conv.id) }
                                 showMultiForwardPicker = false
                                 selectionMode = false; selectedIds = emptySet()
+                                onNavigateToChat(conv.id, conv.name ?: "Чат")
                             })
                             .padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,

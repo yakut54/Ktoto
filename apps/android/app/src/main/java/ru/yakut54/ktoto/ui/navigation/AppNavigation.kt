@@ -133,6 +133,9 @@ fun AppNavigation() {
                 conversationName = convName,
                 currentUserId = userId,
                 onBack = { navController.popBackStack() },
+                onNavigateToChat = { targetConvId, targetConvName ->
+                    navController.navigate(Routes.chat(targetConvId, targetConvName, userId))
+                },
             )
         }
     }
