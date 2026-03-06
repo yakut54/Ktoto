@@ -1636,26 +1636,27 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
         }
     }
 
-    Column(modifier = Modifier.fillMaxWidth().padding(top = 2.dp)) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 48.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = {
-                if (loadError || isPreparing) return@IconButton
-                if (isPlaying) {
-                    player.value?.pause()
-                    isPlaying = false
-                } else {
-                    if (player.value == null) startPlayback()
-                    else { player.value?.start(); isPlaying = true }
-                }
-            }) {
+            IconButton(
+                onClick = {
+                    if (loadError || isPreparing) return@IconButton
+                    if (isPlaying) {
+                        player.value?.pause()
+                        isPlaying = false
+                    } else {
+                        if (player.value == null) startPlayback()
+                        else { player.value?.start(); isPlaying = true }
+                    }
+                },
+                modifier = Modifier.size(40.dp),
+            ) {
                 if (isPreparing) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
+                        modifier = Modifier.size(20.dp),
                         strokeWidth = 2.dp,
                         color = textColor,
                     )
@@ -1668,6 +1669,7 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
                         },
                         contentDescription = "Воспроизвести",
                         tint = if (loadError) MaterialTheme.colorScheme.error else textColor,
+                        modifier = Modifier.size(22.dp),
                     )
                 }
             }
@@ -1675,7 +1677,7 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
                 if (loadError) {
                     LinearProgressIndicator(
                         progress = { 0f },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().padding(end = 4.dp),
                         color = MaterialTheme.colorScheme.error,
                         trackColor = MaterialTheme.colorScheme.error.copy(alpha = 0.2f),
                     )
@@ -1691,7 +1693,7 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
                             isSeeking = false
                         },
                         enabled = !isPreparing && player.value != null,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(end = 4.dp),
                         colors = SliderDefaults.colors(
                             thumbColor = textColor,
                             activeTrackColor = textColor,
