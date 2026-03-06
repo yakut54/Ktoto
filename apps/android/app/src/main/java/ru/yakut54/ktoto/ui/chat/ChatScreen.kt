@@ -311,19 +311,21 @@ fun ChatScreen(
                     // ── LOCKED: recording without holding ───────────────────────────────
                     VoiceState.LOCKED -> LockedRecordingBar(
                         seconds = recordingSeconds,
-                        isPaused = false,
                         onCancel = { vm.cancelRecording() },
-                        onPauseResume = { vm.pauseRecording() },
+                        onPause = { vm.pauseRecording() },
                         onSend = { vm.sendVoiceFromLocked() },
                     )
 
-                    // ── PAUSED: recording suspended ──────────────────────────────────────
-                    VoiceState.PAUSED -> LockedRecordingBar(
+                    // ── PAUSED: recorder stopped, user can listen or continue ────────────
+                    VoiceState.PAUSED -> PausedRecordingBar(
                         seconds = recordingSeconds,
-                        isPaused = true,
+                        isPlaying = previewPlaying,
+                        progress = previewProgress,
                         onCancel = { vm.cancelRecording() },
-                        onPauseResume = { vm.resumeRecording() },
-                        onSend = { vm.sendVoiceFromLocked() },
+                        onTogglePlay = { vm.togglePreviewPlayback() },
+                        onContinue = { vm.resumeRecording(context) },
+                        onSend = { vm.sendVoicePaused() },
+                        onSeek = { vm.seekPreviewTo(it) },
                     )
 
                     // ── PREVIEW: stopped, user decides to listen / send / delete ────────
@@ -1124,9 +1126,8 @@ fun ChatScreen(
 @Composable
 private fun LockedRecordingBar(
     seconds: Int,
-    isPaused: Boolean,
     onCancel: () -> Unit,
-    onPauseResume: () -> Unit,
+    onPause: () -> Unit,
     onSend: () -> Unit,
 ) {
     Row(
@@ -1137,47 +1138,94 @@ private fun LockedRecordingBar(
             .padding(horizontal = 8.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Lock icon
         Icon(
             Icons.Default.Lock,
             contentDescription = null,
-            tint = if (isPaused) MaterialTheme.colorScheme.onSurfaceVariant
-                   else MaterialTheme.colorScheme.error,
+            tint = MaterialTheme.colorScheme.error,
             modifier = Modifier.size(20.dp),
         )
         Spacer(Modifier.width(8.dp))
-        // Red dot (blinks when recording, grey when paused) + timer
-        Box(
-            Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(if (isPaused) Color.Gray else Color.Red),
-        )
+        Box(Modifier.size(8.dp).clip(CircleShape).background(Color.Red))
         Spacer(Modifier.width(6.dp))
-        Text(
-            formatDuration(seconds),
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (isPaused) MaterialTheme.colorScheme.onSurfaceVariant
-                    else MaterialTheme.colorScheme.onSurface,
-        )
+        Text(formatDuration(seconds), style = MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.weight(1f))
-        // ❌ Cancel
+        // ✕ Cancel
         IconButton(onClick = onCancel) {
-            Icon(
-                Icons.Default.Close,
-                contentDescription = "Отмена",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Icon(Icons.Default.Close, "Отмена", tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        // ⏸/▶ Pause / Resume
-        IconButton(onClick = onPauseResume) {
+        // ⏸ Pause
+        IconButton(onClick = onPause) {
+            Icon(Icons.Default.Pause, "Пауза", tint = MaterialTheme.colorScheme.primary)
+        }
+        // → Send immediately
+        FilledIconButton(onClick = onSend, modifier = Modifier.size(48.dp)) {
+            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Отправить")
+        }
+    }
+}
+
+// ── PAUSED recording bar ────────────────────────────────────────────────────────
+// Recorder stopped → file is complete and playable.
+// Buttons: ✕ Cancel | ▶/⏸ Listen | seek + timer | 🎤 Continue | → Send
+
+@Composable
+private fun PausedRecordingBar(
+    seconds: Int,
+    isPlaying: Boolean,
+    progress: Float,
+    onCancel: () -> Unit,
+    onTogglePlay: () -> Unit,
+    onContinue: () -> Unit,
+    onSend: () -> Unit,
+    onSeek: (Float) -> Unit = {},
+) {
+    var isSeeking by remember { mutableStateOf(false) }
+    var seekValue by remember { mutableFloatStateOf(0f) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .imePadding()
+            .padding(horizontal = 4.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // ✕ Cancel / discard everything
+        IconButton(onClick = onCancel) {
+            Icon(Icons.Default.Close, "Отмена", tint = MaterialTheme.colorScheme.error)
+        }
+        // ▶/⏸ Listen to what was recorded
+        IconButton(onClick = onTogglePlay) {
             Icon(
-                imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
-                contentDescription = if (isPaused) "Возобновить" else "Пауза",
+                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                contentDescription = if (isPlaying) "Пауза" else "Прослушать",
                 tint = MaterialTheme.colorScheme.primary,
             )
         }
-        // ✓ Send immediately
+        // Seekable progress + timer
+        Column(modifier = Modifier.weight(1f)) {
+            Slider(
+                value = if (isSeeking) seekValue else progress,
+                onValueChange = { isSeeking = true; seekValue = it },
+                onValueChangeFinished = { onSeek(seekValue); isSeeking = false },
+                modifier = Modifier.fillMaxWidth(),
+                colors = SliderDefaults.colors(
+                    thumbColor = MaterialTheme.colorScheme.primary,
+                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                ),
+            )
+            Text(
+                formatDuration(seconds),
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp),
+            )
+        }
+        // 🎤 Continue recording (new segment)
+        IconButton(onClick = onContinue) {
+            Icon(Icons.Default.Mic, "Продолжить запись", tint = MaterialTheme.colorScheme.primary)
+        }
+        // → Send all recorded segments
         FilledIconButton(onClick = onSend, modifier = Modifier.size(48.dp)) {
             Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Отправить")
         }

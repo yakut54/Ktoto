@@ -1,6 +1,10 @@
 package ru.yakut54.ktoto.ui.chat
 
 import android.content.Context
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
+import android.media.MediaMuxer
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
@@ -8,12 +12,14 @@ import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
@@ -25,8 +31,22 @@ import ru.yakut54.ktoto.data.model.SendMessageRequest
 import ru.yakut54.ktoto.data.socket.SocketManager
 import ru.yakut54.ktoto.data.store.TokenStore
 import java.io.File
+import java.nio.ByteBuffer
 
-/** Voice recording state machine: IDLE → RECORDING → LOCKED ↔ PAUSED | PREVIEW → IDLE */
+/**
+ * Voice recording state machine:
+ *
+ *   IDLE → (long-press mic) → RECORDING
+ *   RECORDING → (slide up)  → LOCKED   (hands-free)
+ *   RECORDING → (release)   → PREVIEW  (single-segment preview)
+ *   LOCKED   → (⏸)         → PAUSED   (recorder stopped, file ready to play)
+ *   LOCKED   → (release)    → PREVIEW
+ *   PAUSED   → (🎤)         → LOCKED   (new segment starts, continues timer)
+ *   PAUSED   → (→ send)     → IDLE     (segments merged + uploaded)
+ *   PAUSED / LOCKED → (✕)  → IDLE     (all files discarded)
+ *   PREVIEW  → (→ send)     → IDLE
+ *   PREVIEW  → (🗑)         → IDLE
+ */
 enum class VoiceState { IDLE, RECORDING, LOCKED, PAUSED, PREVIEW }
 
 class ChatViewModel(
@@ -63,15 +83,15 @@ class ChatViewModel(
     private val _voiceState = MutableStateFlow(VoiceState.IDLE)
     val voiceState: StateFlow<VoiceState> = _voiceState
 
-    /** Timer seconds — counts up during RECORDING/LOCKED, shows duration in PREVIEW */
+    /** Counts up while recording (across all segments — never resets between pause/resume) */
     private val _recordingSeconds = MutableStateFlow(0)
     val recordingSeconds: StateFlow<Int> = _recordingSeconds
 
-    /** Duration saved when recording stops (used in PREVIEW bar) */
+    /** Total duration saved when recording finishes (shown in PREVIEW bar) */
     private val _previewDuration = MutableStateFlow(0)
     val previewDuration: StateFlow<Int> = _previewDuration
 
-    /** Preview playback state */
+    /** Preview playback state (PREVIEW + PAUSED bars) */
     private val _previewPlaying = MutableStateFlow(false)
     val previewPlaying: StateFlow<Boolean> = _previewPlaying
 
@@ -81,10 +101,23 @@ class ChatViewModel(
     // ── Internal ───────────────────────────────────────────────────────────────
     private var conversationId: String = ""
     private var recorder: MediaRecorder? = null
+
+    /**
+     * The currently active recording file (null when in PAUSED state —
+     * the file was moved to [voiceSegments]).
+     */
     private var voiceFile: File? = null
+
+    /** Completed segments from previous pause/resume cycles. */
+    private val voiceSegments = mutableListOf<File>()
+
     private var recordingTimerJob: kotlinx.coroutines.Job? = null
     private var previewPlayer: MediaPlayer? = null
     private var previewProgressJob: kotlinx.coroutines.Job? = null
+
+    /** File to play in preview / paused bars: last completed segment or current voiceFile. */
+    private val currentPreviewFile: File?
+        get() = voiceFile ?: voiceSegments.lastOrNull()
 
     // ── Init ───────────────────────────────────────────────────────────────────
 
@@ -170,7 +203,6 @@ class ChatViewModel(
     fun startEditing(msg: Message) { _editingMessage.value = msg }
     fun cancelEditing() { _editingMessage.value = null }
 
-    /** Delete for everyone — API call + WS broadcast to all participants */
     fun deleteMessage(msgId: String) {
         viewModelScope.launch {
             runCatching {
@@ -182,7 +214,6 @@ class ChatViewModel(
         clearSelection()
     }
 
-    /** Delete for me only — removes from local list, no server call */
     fun deleteMessageForMe(msgId: String) {
         _messages.value = _messages.value.filter { it.id != msgId }
         clearSelection()
@@ -255,30 +286,15 @@ class ChatViewModel(
 
     // ── Voice: recording lifecycle ─────────────────────────────────────────────
 
-    /** Long-press mic → starts recording */
+    /** Long-press mic → starts recording (first segment) */
     fun startRecording(context: Context) {
         if (_voiceState.value != VoiceState.IDLE) return
         val file = File(context.cacheDir, "voice_${System.currentTimeMillis()}.m4a")
         voiceFile = file
-
-        @Suppress("DEPRECATION")
-        recorder = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(context) else MediaRecorder()
-        recorder?.apply {
-            setAudioSource(MediaRecorder.AudioSource.MIC)
-            setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            setAudioEncodingBitRate(128000)
-            setAudioSamplingRate(44100)
-            setOutputFile(file.absolutePath)
-            prepare()
-            start()
-        }
-
+        startMediaRecorder(context, file)
         _voiceState.value = VoiceState.RECORDING
         _recordingSeconds.value = 0
-        recordingTimerJob = viewModelScope.launch {
-            while (true) { delay(1000); _recordingSeconds.value++ }
-        }
+        startTimer()
     }
 
     /** Slide UP while holding → locks recording (continues hands-free) */
@@ -290,63 +306,111 @@ class ChatViewModel(
 
     /**
      * Finger released without sliding → stops recording, enters PREVIEW.
-     * User can listen, then send or delete.
+     * If there are prior segments, they are merged synchronously before preview.
      */
     fun stopRecordingToPreview() {
-        if (_voiceState.value !in listOf(VoiceState.RECORDING, VoiceState.LOCKED, VoiceState.PAUSED)) return
+        if (_voiceState.value !in listOf(VoiceState.RECORDING, VoiceState.LOCKED)) return
         recordingTimerJob?.cancel()
         _previewDuration.value = _recordingSeconds.value
         stopRecorder()
+
+        if (voiceSegments.isNotEmpty()) {
+            // Merge all segments + current file into one for preview
+            val currentFile = voiceFile
+            voiceFile = null
+            viewModelScope.launch {
+                val allSegments = voiceSegments.toList() + listOfNotNull(currentFile)
+                val merged = withContext(Dispatchers.IO) {
+                    val out = File(allSegments[0].parent, "voice_merged_${System.currentTimeMillis()}.m4a")
+                    concatenateM4aFiles(allSegments, out)
+                    out
+                }
+                voiceSegments.forEach { it.delete() }
+                voiceSegments.clear()
+                currentFile?.delete()
+                voiceFile = merged
+            }
+        }
         _voiceState.value = VoiceState.PREVIEW
     }
 
-    /** Slide LEFT (or tap ❌) → discards immediately */
+    /** Slide LEFT (or tap ✕ in any recording bar) → discards everything */
     fun cancelRecording() {
         recordingTimerJob?.cancel()
         stopRecorder()
         releasePreviewPlayer()
         voiceFile?.delete()
         voiceFile = null
+        voiceSegments.forEach { it.delete() }
+        voiceSegments.clear()
         _voiceState.value = VoiceState.IDLE
         _recordingSeconds.value = 0
         _previewDuration.value = 0
     }
 
-    // ── Voice: locked mode actions ─────────────────────────────────────────────
+    // ── Voice: LOCKED bar actions ──────────────────────────────────────────────
 
-    /** Tap ⏸ in LOCKED bar → pauses recording, timer stops */
+    /**
+     * Tap ⏸ in LOCKED bar:
+     *   - Stops the recorder (file is finalized and playable)
+     *   - Moves file to [voiceSegments]
+     *   - Enters PAUSED state where user can listen or continue recording
+     */
     fun pauseRecording() {
         if (_voiceState.value != VoiceState.LOCKED) return
         recordingTimerJob?.cancel()
-        recorder?.pause()
+        stopRecorder()
+        voiceFile?.let { voiceSegments.add(it) }
+        voiceFile = null
+        _previewDuration.value = _recordingSeconds.value
+        // Reset preview player so next togglePreviewPlayback() loads fresh file
+        releasePreviewPlayer()
         _voiceState.value = VoiceState.PAUSED
     }
 
-    /** Tap ▶ in PAUSED bar → resumes recording, timer continues */
-    fun resumeRecording() {
+    /**
+     * Tap 🎤 in PAUSED bar:
+     *   - Starts a new recording segment
+     *   - Timer continues from where it stopped
+     */
+    fun resumeRecording(context: Context) {
         if (_voiceState.value != VoiceState.PAUSED) return
-        recorder?.resume()
+        releasePreviewPlayer()
+        val file = File(context.cacheDir, "voice_${System.currentTimeMillis()}.m4a")
+        voiceFile = file
+        startMediaRecorder(context, file)
         _voiceState.value = VoiceState.LOCKED
-        recordingTimerJob = viewModelScope.launch {
-            while (true) { delay(1000); _recordingSeconds.value++ }
-        }
+        startTimer()
     }
 
-    /** Tap ▶ in LOCKED/PAUSED bar → stops recording and sends immediately (no preview) */
+    /** Tap → in LOCKED bar → stops + sends immediately (no preview) */
     fun sendVoiceFromLocked() {
-        if (_voiceState.value !in listOf(VoiceState.LOCKED, VoiceState.PAUSED)) return
+        if (_voiceState.value != VoiceState.LOCKED) return
         recordingTimerJob?.cancel()
         val duration = _recordingSeconds.value
         stopRecorder()
-        val file = voiceFile ?: run { resetVoiceState(); return }
+        val currentFile = voiceFile
         voiceFile = null
+        val allSegments = voiceSegments.toList() + listOfNotNull(currentFile)
+        voiceSegments.clear()
         resetVoiceState()
-        uploadVoice(file, duration)
+        uploadVoiceSegments(allSegments, duration)
     }
 
-    // ── Voice: preview mode actions ────────────────────────────────────────────
+    /** Tap → in PAUSED bar → sends all recorded segments */
+    fun sendVoicePaused() {
+        if (_voiceState.value != VoiceState.PAUSED) return
+        val duration = _recordingSeconds.value
+        releasePreviewPlayer()
+        val allSegments = voiceSegments.toList()
+        voiceSegments.clear()
+        resetVoiceState()
+        uploadVoiceSegments(allSegments, duration)
+    }
 
-    /** Tap ▶/⏸ in PREVIEW bar → plays/pauses the recorded audio */
+    // ── Voice: preview bar actions (PREVIEW state) ────────────────────────────
+
+    /** Tap ▶/⏸ in PREVIEW or PAUSED bar → plays/pauses the recorded audio */
     fun togglePreviewPlayback() {
         if (_previewPlaying.value) {
             previewPlayer?.pause()
@@ -354,11 +418,11 @@ class ChatViewModel(
             previewProgressJob?.cancel()
             return
         }
-        val file = voiceFile ?: return
+        val file = currentPreviewFile ?: return
         if (previewPlayer == null) {
             previewPlayer = MediaPlayer().apply {
                 setDataSource(file.absolutePath)
-                prepare() // synchronous — OK for local file
+                prepare()
                 setOnCompletionListener {
                     _previewPlaying.value = false
                     _previewProgress.value = 0f
@@ -379,6 +443,13 @@ class ChatViewModel(
         }
     }
 
+    /** Drag progress bar in PREVIEW/PAUSED → seek to position [0..1] */
+    fun seekPreviewTo(position: Float) {
+        val mp = previewPlayer ?: return
+        mp.seekTo((position * mp.duration.toFloat()).toInt().coerceAtLeast(0))
+        _previewProgress.value = position
+    }
+
     /** Tap ✓ in PREVIEW bar → uploads and sends the recording */
     fun sendVoicePreview() {
         if (_voiceState.value != VoiceState.PREVIEW) return
@@ -387,18 +458,11 @@ class ChatViewModel(
         releasePreviewPlayer()
         voiceFile = null
         resetVoiceState()
-        uploadVoice(file, duration)
+        uploadVoiceSegments(listOf(file), duration)
     }
 
     /** Tap 🗑 in PREVIEW bar → discards the recording */
     fun deleteVoicePreview() = cancelRecording()
-
-    /** Drag progress bar in PREVIEW → seek to position [0..1] */
-    fun seekPreviewTo(position: Float) {
-        val mp = previewPlayer ?: return
-        mp.seekTo((position * mp.duration.toFloat()).toInt().coerceAtLeast(0))
-        _previewProgress.value = position
-    }
 
     // ── Typing ─────────────────────────────────────────────────────────────────
 
@@ -414,6 +478,28 @@ class ChatViewModel(
     }
 
     // ── Private helpers ────────────────────────────────────────────────────────
+
+    private fun startMediaRecorder(context: Context, file: File) {
+        @Suppress("DEPRECATION")
+        recorder = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(context) else MediaRecorder()
+        recorder?.apply {
+            setAudioSource(MediaRecorder.AudioSource.MIC)
+            setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            setAudioEncodingBitRate(128000)
+            setAudioSamplingRate(44100)
+            setOutputFile(file.absolutePath)
+            prepare()
+            start()
+        }
+    }
+
+    private fun startTimer() {
+        recordingTimerJob?.cancel()
+        recordingTimerJob = viewModelScope.launch {
+            while (true) { delay(1000); _recordingSeconds.value++ }
+        }
+    }
 
     private fun stopRecorder() {
         try { recorder?.stop() } catch (_: Exception) {}
@@ -435,19 +521,92 @@ class ChatViewModel(
         _previewDuration.value = 0
     }
 
-    private fun uploadVoice(file: File, duration: Int) {
+    /**
+     * Concatenates multiple M4A/AAC files into a single output file using [MediaMuxer].
+     * Timestamps are adjusted so segments play back-to-back without gaps.
+     * Must be called on a background thread.
+     */
+    private fun concatenateM4aFiles(inputs: List<File>, output: File) {
+        val muxer = MediaMuxer(output.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        var outputTrackIndex = -1
+        var offsetUs = 0L
+
+        for (file in inputs) {
+            if (!file.exists() || file.length() == 0L) continue
+            val extractor = MediaExtractor()
+            try {
+                extractor.setDataSource(file.absolutePath)
+                val trackIdx = (0 until extractor.trackCount).firstOrNull { idx ->
+                    extractor.getTrackFormat(idx)
+                        .getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
+                } ?: continue
+
+                extractor.selectTrack(trackIdx)
+                val format = extractor.getTrackFormat(trackIdx)
+
+                if (outputTrackIndex < 0) {
+                    outputTrackIndex = muxer.addTrack(format)
+                    muxer.start()
+                }
+
+                val buf = ByteBuffer.allocate(512 * 1024)
+                val info = MediaCodec.BufferInfo()
+                while (true) {
+                    info.offset = 0
+                    val size = extractor.readSampleData(buf, 0)
+                    if (size < 0) break
+                    info.size = size
+                    info.presentationTimeUs = extractor.sampleTime + offsetUs
+                    info.flags = extractor.sampleFlags
+                    muxer.writeSampleData(outputTrackIndex, buf, info)
+                    extractor.advance()
+                }
+
+                val durationUs = runCatching {
+                    format.getLong(MediaFormat.KEY_DURATION)
+                }.getOrDefault(0L)
+                offsetUs += durationUs
+            } finally {
+                extractor.release()
+            }
+        }
+
+        if (outputTrackIndex >= 0) {
+            muxer.stop()
+        }
+        muxer.release()
+    }
+
+    /**
+     * Uploads voice message. If there are multiple segments they are merged first.
+     * All source files are deleted after upload.
+     */
+    private fun uploadVoiceSegments(segments: List<File>, duration: Int) {
         viewModelScope.launch {
             _sending.value = true
+            var mergedFile: File? = null
             try {
                 val token = tokenStore.accessToken.first()
                     ?: throw IllegalStateException("No access token")
+
+                val validSegments = segments.filter { it.exists() && it.length() > 0 }
+                if (validSegments.isEmpty()) return@launch
+
+                val fileToSend = if (validSegments.size == 1) {
+                    validSegments[0]
+                } else {
+                    val out = File(validSegments[0].parent, "voice_merged_${System.currentTimeMillis()}.m4a")
+                    mergedFile = out
+                    withContext(Dispatchers.IO) { concatenateM4aFiles(validSegments, out) }
+                    out
+                }
+
                 val filePart = MultipartBody.Part.createFormData(
-                    "file", file.name, file.asRequestBody("audio/mp4".toMediaType())
+                    "file", fileToSend.name, fileToSend.asRequestBody("audio/mp4".toMediaType())
                 )
                 val metaPart = Gson().toJson(mapOf("type" to "voice", "duration" to duration))
                     .toRequestBody("text/plain".toMediaType())
                 val msg = api.uploadMessage("Bearer $token", conversationId, filePart, metaPart)
-                // Add from API response, or update if WS already added it without full attachment
                 _messages.value = if (_messages.value.none { it.id == msg.id }) {
                     _messages.value + msg
                 } else {
@@ -455,7 +614,6 @@ class ChatViewModel(
                 }
             } catch (e: Exception) {
                 android.util.Log.e("ChatViewModel", "Voice upload failed, reloading messages", e)
-                // Fallback: reload messages so the voice message (saved server-side) appears
                 runCatching {
                     val token = tokenStore.accessToken.first() ?: return@runCatching
                     val latest = api.getMessages("Bearer $token", conversationId)
@@ -465,7 +623,8 @@ class ChatViewModel(
                 }
             } finally {
                 _sending.value = false
-                file.delete()
+                segments.forEach { it.delete() }
+                mergedFile?.delete()
             }
         }
     }
