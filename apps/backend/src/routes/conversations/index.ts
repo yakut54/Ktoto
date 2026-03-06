@@ -15,6 +15,7 @@ interface SendMessageBody {
   content?: string
   type?: 'text'
   reply_to_id?: string
+  forward_message_id?: string
 }
 
 interface MessageParams {
@@ -465,6 +466,74 @@ export async function conversationRoutes(app: FastifyInstance) {
         content = body.content ?? null
         msgType = body.type ?? 'text'
         replyToId = body.reply_to_id ?? null
+
+        // ── Forward: copy original message to target conversation ──────────────
+        if (body.forward_message_id) {
+          const origRes = await app.pg.query<{
+            content: string | null; msg_type: string
+            s3_key: string | null; file_name: string | null; file_size_bytes: number | null
+            mime_type: string | null; file_type: string | null; thumb_key: string | null
+            duration_seconds: number | null; image_width: number | null; image_height: number | null
+          }>(
+            `SELECT m.content, m.type AS msg_type,
+                    fa.s3_key, fa.file_name, fa.file_size_bytes, fa.mime_type,
+                    fa.file_type, fa.thumbnail_s3_key AS thumb_key, fa.duration_seconds,
+                    fa.image_width, fa.image_height
+             FROM messages m
+             LEFT JOIN file_attachments fa ON fa.message_id = m.id
+             WHERE m.id = $1 AND m.deleted_at IS NULL`,
+            [body.forward_message_id],
+          )
+          if (!origRes.rows[0]) return reply.status(404).send({ error: 'Original message not found' })
+          const orig = origRes.rows[0]
+
+          const { rows: fwdRows } = await app.pg.query<{ id: string; created_at: string }>(
+            `INSERT INTO messages (conversation_id, user_id, type, content)
+             VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
+            [convId, userId, orig.msg_type, orig.content],
+          )
+          const fwdMsg = fwdRows[0]
+
+          let fwdAttachment = null
+          if (orig.s3_key) {
+            await app.pg.query(
+              `INSERT INTO file_attachments
+                 (message_id, file_name, file_size_bytes, mime_type, file_type,
+                  s3_key, thumbnail_s3_key, duration_seconds, image_width, image_height)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+              [fwdMsg.id, orig.file_name, orig.file_size_bytes, orig.mime_type, orig.file_type,
+               orig.s3_key, orig.thumb_key, orig.duration_seconds, orig.image_width, orig.image_height],
+            )
+            const url = await app.s3.presignedUrl(orig.s3_key)
+            const thumbnailUrl = orig.thumb_key ? await app.s3.presignedUrl(orig.thumb_key) : null
+            fwdAttachment = {
+              fileName: orig.file_name, fileSize: orig.file_size_bytes, mimeType: orig.mime_type,
+              url, thumbnailUrl, duration: orig.duration_seconds,
+              width: orig.image_width, height: orig.image_height,
+            }
+          }
+
+          await app.pg.query(`UPDATE conversations SET updated_at=NOW() WHERE id=$1`, [convId])
+
+          const userRow = await app.pg.query<{ username: string; avatar_url: string | null }>(
+            `SELECT username, avatar_url FROM users WHERE id=$1`, [userId],
+          )
+          const payload = {
+            id: fwdMsg.id, content: orig.content, type: orig.msg_type,
+            createdAt: fwdMsg.created_at, replyToId: null,
+            sender: { id: userId, username: userRow.rows[0].username, avatarUrl: userRow.rows[0].avatar_url },
+            conversationId: convId, attachment: fwdAttachment,
+          }
+          const participants = await app.pg.query<{ user_id: string }>(
+            `SELECT user_id FROM conversation_participants WHERE conversation_id=$1`, [convId],
+          )
+          for (const p of participants.rows) {
+            app.io.to(`user:${p.user_id}`).emit('new_message', payload)
+          }
+          reply.status(201)
+          return payload
+        }
+        // ── End forward ────────────────────────────────────────────────────────
 
         if (!content?.trim()) return reply.status(400).send({ error: 'content required' })
 

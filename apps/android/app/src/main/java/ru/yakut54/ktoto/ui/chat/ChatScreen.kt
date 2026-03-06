@@ -147,9 +147,12 @@ fun ChatScreen(
 
     val activity = context as? android.app.Activity
 
+    val conversationsForPicker by vm.conversationsForPicker.collectAsState()
+
     var showAttachSheet by remember { mutableStateOf(false) }
     var recordingCancelHint by remember { mutableStateOf(false) }
-    var showDeleteConfirm by remember { mutableStateOf<String?>(null) }
+    var showDeleteConfirm by remember { mutableStateOf<ru.yakut54.ktoto.data.model.Message?>(null) }
+    var showForwardPicker by remember { mutableStateOf<ru.yakut54.ktoto.data.model.Message?>(null) }
 
     // ── Permission state ───────────────────────────────────────────────────────
     var showMicRationale by remember { mutableStateOf(false) }
@@ -629,23 +632,40 @@ fun ChatScreen(
                         message = msg,
                         isMine = msg.sender.id == currentUserId,
                         allMessages = messages,
+                        onLongClick = { vm.selectMessage(msg) },
                     )
                 }
             }
         }
     }
 
-    // Delete confirmation dialog
+    // Delete confirmation dialog — "для меня" / "для всех"
     if (showDeleteConfirm != null) {
+        val msgToDelete = showDeleteConfirm!!
+        val isMineDelete = msgToDelete.sender.id == currentUserId
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = null },
             title = { Text("Удалить сообщение?") },
-            text = { Text("Сообщение будет удалено у всех участников.") },
+            text = null,
             confirmButton = {
-                TextButton(onClick = {
-                    vm.deleteMessage(showDeleteConfirm!!)
-                    showDeleteConfirm = null
-                }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
+                Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                    if (isMineDelete) {
+                        TextButton(
+                            onClick = {
+                                vm.deleteMessage(msgToDelete.id)
+                                showDeleteConfirm = null
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Удалить у всех", color = MaterialTheme.colorScheme.error) }
+                    }
+                    TextButton(
+                        onClick = {
+                            vm.deleteMessageForMe(msgToDelete.id)
+                            showDeleteConfirm = null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Удалить у меня", color = MaterialTheme.colorScheme.error) }
+                }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirm = null }) { Text("Отмена") }
@@ -674,7 +694,7 @@ fun ChatScreen(
                     },
                 )
                 // Copy — text only
-                if (msg.type == "text" && !msg.content.isNullOrBlank()) {
+                if (!msg.content.isNullOrBlank()) {
                     AttachOption(
                         icon = { Icon(Icons.Default.ContentCopy, null) },
                         label = "Копировать",
@@ -686,6 +706,16 @@ fun ChatScreen(
                         },
                     )
                 }
+                // Forward — always
+                AttachOption(
+                    icon = { Icon(Icons.AutoMirrored.Filled.Reply, null) },
+                    label = "Переслать",
+                    onClick = {
+                        showForwardPicker = msg
+                        vm.loadConversationsForPicker()
+                        vm.clearSelection()
+                    },
+                )
                 // Edit — own text only
                 if (isMine && msg.type == "text") {
                     AttachOption(
@@ -697,18 +727,16 @@ fun ChatScreen(
                         },
                     )
                 }
-                // Delete — own messages only
-                if (isMine) {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                    AttachOption(
-                        icon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
-                        label = "Удалить",
-                        onClick = {
-                            showDeleteConfirm = msg.id
-                            vm.clearSelection()
-                        },
-                    )
-                }
+                // Delete — always (own = for everyone option, other = for me only)
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                AttachOption(
+                    icon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                    label = "Удалить",
+                    onClick = {
+                        showDeleteConfirm = msg
+                        vm.clearSelection()
+                    },
+                )
             }
         }
     }
@@ -743,6 +771,52 @@ fun ChatScreen(
                         filePickerLauncher.launch(arrayOf("*/*"))
                     },
                 )
+            }
+        }
+    }
+
+    // ── Forward picker ─────────────────────────────────────────────────────────
+    if (showForwardPicker != null) {
+        val msgToForward = showForwardPicker!!
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showForwardPicker = null },
+            sheetState = sheetState,
+        ) {
+            Column(modifier = Modifier.padding(bottom = 32.dp)) {
+                Text(
+                    "Переслать в...",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                )
+                HorizontalDivider()
+                conversationsForPicker.filter { it.id != conversationId }.forEach { conv ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .combinedClickable(onClick = {
+                                vm.forwardMessage(msgToForward, conv.id)
+                                showForwardPicker = null
+                            })
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier.size(40.dp).background(
+                                MaterialTheme.colorScheme.primary, CircleShape
+                            ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                (conv.name ?: "?").take(1).uppercase(),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                        }
+                        Text(conv.name ?: "Чат", style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
             }
         }
     }
@@ -961,7 +1035,7 @@ private fun AttachOption(icon: @Composable () -> Unit, label: String, onClick: (
 // ── Message bubbles ────────────────────────────────────────────────────────────
 
 @Composable
-private fun MessageBubble(message: Message, isMine: Boolean, allMessages: List<Message> = emptyList()) {
+private fun MessageBubble(message: Message, isMine: Boolean, allMessages: List<Message> = emptyList(), onLongClick: () -> Unit = {}) {
     val bubbleColor = if (isMine) MaterialTheme.colorScheme.primary
                       else MaterialTheme.colorScheme.surfaceVariant
     val textColor = if (isMine) MaterialTheme.colorScheme.onPrimary
@@ -1041,7 +1115,7 @@ private fun MessageBubble(message: Message, isMine: Boolean, allMessages: List<M
             }
 
             when (effectiveType) {
-                "image" -> ImageBubble(message, isMine, bubbleColor, textColor)
+                "image" -> ImageBubble(message, isMine, bubbleColor, textColor, onLongClick = onLongClick)
                 "voice" -> VoiceBubble(message, isMine, textColor)
                 "file"  -> FileBubble(message, isMine, textColor)
                 else -> {
@@ -1071,7 +1145,7 @@ private fun MessageBubble(message: Message, isMine: Boolean, allMessages: List<M
 }
 
 @Composable
-private fun ImageBubble(message: Message, isMine: Boolean, bubbleColor: Color, textColor: Color) {
+private fun ImageBubble(message: Message, isMine: Boolean, bubbleColor: Color, textColor: Color, onLongClick: () -> Unit = {}) {
     val att = message.attachment
     var showFullscreen by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(
@@ -1085,13 +1159,10 @@ private fun ImageBubble(message: Message, isMine: Boolean, bubbleColor: Color, t
             .widthIn(max = 280.dp)
             .clip(shape)
             .background(bubbleColor)
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown()
-                    val up = waitForUpOrCancellation()
-                    if (up != null) showFullscreen = true
-                }
-            },
+            .combinedClickable(
+                onClick = { showFullscreen = true },
+                onLongClick = onLongClick,
+            ),
     ) {
         val imageUrl = att?.thumbnailUrl ?: att?.url
         if (imageUrl != null) {

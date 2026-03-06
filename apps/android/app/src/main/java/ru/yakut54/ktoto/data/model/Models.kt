@@ -66,9 +66,10 @@ data class Sender(
 )
 
 data class SendMessageRequest(
-    val content: String,
+    val content: String = "",
     val type: String = "text",
     val reply_to_id: String? = null,
+    val forward_message_id: String? = null,
 )
 
 data class EditMessageRequest(val content: String)

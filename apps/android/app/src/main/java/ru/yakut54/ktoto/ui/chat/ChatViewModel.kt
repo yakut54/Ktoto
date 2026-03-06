@@ -56,6 +56,9 @@ class ChatViewModel(
     private val _uploadProgress = MutableStateFlow<Float?>(null)
     val uploadProgress: StateFlow<Float?> = _uploadProgress
 
+    private val _conversationsForPicker = MutableStateFlow<List<ru.yakut54.ktoto.data.model.Conversation>>(emptyList())
+    val conversationsForPicker: StateFlow<List<ru.yakut54.ktoto.data.model.Conversation>> = _conversationsForPicker
+
     // ── Voice state ────────────────────────────────────────────────────────────
     private val _voiceState = MutableStateFlow(VoiceState.IDLE)
     val voiceState: StateFlow<VoiceState> = _voiceState
@@ -167,6 +170,7 @@ class ChatViewModel(
     fun startEditing(msg: Message) { _editingMessage.value = msg }
     fun cancelEditing() { _editingMessage.value = null }
 
+    /** Delete for everyone — API call + WS broadcast to all participants */
     fun deleteMessage(msgId: String) {
         viewModelScope.launch {
             runCatching {
@@ -176,6 +180,36 @@ class ChatViewModel(
             }.onFailure { android.util.Log.e("ChatViewModel", "deleteMessage failed", it) }
         }
         clearSelection()
+    }
+
+    /** Delete for me only — removes from local list, no server call */
+    fun deleteMessageForMe(msgId: String) {
+        _messages.value = _messages.value.filter { it.id != msgId }
+        clearSelection()
+    }
+
+    fun loadConversationsForPicker() {
+        viewModelScope.launch {
+            runCatching {
+                val token = tokenStore.accessToken.first() ?: return@launch
+                _conversationsForPicker.value = api.getConversations("Bearer $token")
+            }
+        }
+    }
+
+    fun forwardMessage(message: Message, targetConversationId: String) {
+        viewModelScope.launch {
+            runCatching {
+                val token = tokenStore.accessToken.first() ?: return@launch
+                val msg = api.sendMessage(
+                    "Bearer $token", targetConversationId,
+                    SendMessageRequest(forward_message_id = message.id),
+                )
+                if (targetConversationId == conversationId) {
+                    if (_messages.value.none { it.id == msg.id }) _messages.value = _messages.value + msg
+                }
+            }.onFailure { android.util.Log.e("ChatViewModel", "forwardMessage failed", it) }
+        }
     }
 
     fun saveEdit(newContent: String) {
