@@ -375,6 +375,13 @@ class ChatViewModel(
     /** Tap 🗑 in PREVIEW bar → discards the recording */
     fun deleteVoicePreview() = cancelRecording()
 
+    /** Drag progress bar in PREVIEW → seek to position [0..1] */
+    fun seekPreviewTo(position: Float) {
+        val mp = previewPlayer ?: return
+        mp.seekTo((position * mp.duration.toFloat()).toInt().coerceAtLeast(0))
+        _previewProgress.value = position
+    }
+
     // ── Typing ─────────────────────────────────────────────────────────────────
 
     fun notifyTyping() {

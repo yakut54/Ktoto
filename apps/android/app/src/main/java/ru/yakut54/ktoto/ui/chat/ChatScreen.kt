@@ -103,6 +103,12 @@ import coil3.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.androidx.compose.koinViewModel
+import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.ui.input.pointer.PointerEventPass
 import ru.yakut54.ktoto.data.model.Attachment
 import ru.yakut54.ktoto.data.model.Message
 import ru.yakut54.ktoto.utils.formatMessageTime
@@ -153,6 +159,17 @@ fun ChatScreen(
     var recordingCancelHint by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf<ru.yakut54.ktoto.data.model.Message?>(null) }
     var showForwardPicker by remember { mutableStateOf<ru.yakut54.ktoto.data.model.Message?>(null) }
+
+    // ── Multi-select state ─────────────────────────────────────────────────────
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedIds by remember { mutableStateOf(setOf<String>()) }
+    var showMultiDeleteConfirm by remember { mutableStateOf(false) }
+    var showMultiForwardPicker by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = selectionMode) {
+        selectionMode = false
+        selectedIds = emptySet()
+    }
 
     // ── Permission state ───────────────────────────────────────────────────────
     var showMicRationale by remember { mutableStateOf(false) }
@@ -239,21 +256,54 @@ fun ChatScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(conversationName, style = MaterialTheme.typography.titleMedium)
-                        if (isTyping) {
-                            Text("печатает...", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+            if (selectionMode) {
+                val selectedMessages = messages.filter { it.id in selectedIds }
+                TopAppBar(
+                    title = { Text("${selectedIds.size} выбрано") },
+                    navigationIcon = {
+                        IconButton(onClick = { selectionMode = false; selectedIds = emptySet() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Отмена")
                         }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад")
-                    }
-                },
-            )
+                    },
+                    actions = {
+                        val hasText = selectedMessages.any { !it.content.isNullOrBlank() }
+                        if (hasText) {
+                            IconButton(onClick = {
+                                val txt = selectedMessages.mapNotNull { it.content }.joinToString("\n")
+                                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("messages", txt))
+                                selectionMode = false; selectedIds = emptySet()
+                            }) {
+                                Icon(Icons.Default.ContentCopy, "Копировать")
+                            }
+                        }
+                        IconButton(onClick = {
+                            showMultiForwardPicker = true
+                            vm.loadConversationsForPicker()
+                        }) {
+                            Icon(Icons.AutoMirrored.Filled.Reply, "Переслать")
+                        }
+                        IconButton(onClick = { showMultiDeleteConfirm = true }) {
+                            Icon(Icons.Default.Delete, "Удалить", tint = MaterialTheme.colorScheme.error)
+                        }
+                    },
+                )
+            } else {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(conversationName, style = MaterialTheme.typography.titleMedium)
+                            if (isTyping) {
+                                Text("печатает...", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад")
+                        }
+                    },
+                )
+            }
         },
         bottomBar = {
             Surface(shadowElevation = 4.dp, tonalElevation = 2.dp) {
@@ -273,6 +323,7 @@ fun ChatScreen(
                         onDelete = { vm.deleteVoicePreview() },
                         onTogglePlay = { vm.togglePreviewPlayback() },
                         onSend = { vm.sendVoicePreview() },
+                        onSeek = { vm.seekPreviewTo(it) },
                     )
 
                     // ── IDLE or RECORDING: normal input row + optional recording overlay ─
@@ -615,25 +666,84 @@ fun ChatScreen(
         ) {
             items(messages, key = { it.id }) { msg ->
                 val isSelected = selectedMessage?.id == msg.id
+                val isBulkSelected = msg.id in selectedIds
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .then(
-                            if (isSelected) Modifier.background(
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                            ) else Modifier
+                            when {
+                                isBulkSelected -> Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                                isSelected -> Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                                else -> Modifier
+                            }
                         )
                         .combinedClickable(
                             onClick = {},
-                            onLongClick = { vm.selectMessage(msg) },
+                            onLongClick = {
+                                if (selectionMode) {
+                                    selectedIds = if (msg.id in selectedIds) selectedIds - msg.id else selectedIds + msg.id
+                                    if (selectedIds.isEmpty()) selectionMode = false
+                                } else {
+                                    vm.selectMessage(msg)
+                                }
+                            },
                         ),
                 ) {
-                    MessageBubble(
-                        message = msg,
-                        isMine = msg.sender.id == currentUserId,
-                        allMessages = messages,
-                        onLongClick = { vm.selectMessage(msg) },
-                    )
+                    if (selectionMode) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = isBulkSelected,
+                                onCheckedChange = { checked ->
+                                    selectedIds = if (checked) selectedIds + msg.id else selectedIds - msg.id
+                                    if (selectedIds.isEmpty()) selectionMode = false
+                                },
+                                modifier = Modifier.padding(start = 4.dp),
+                            )
+                            // Wrap bubble in a Box that intercepts taps at Initial pass
+                            // so inner interactive elements (play button, image tap) don't fire
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .pointerInput(msg.id) {
+                                        awaitEachGesture {
+                                            val down = awaitFirstDown(
+                                                requireUnconsumed = false,
+                                                pass = PointerEventPass.Initial,
+                                            )
+                                            down.consume()
+                                            var tapped = false
+                                            while (true) {
+                                                val evt = awaitPointerEvent(PointerEventPass.Initial)
+                                                val ch = evt.changes.firstOrNull() ?: break
+                                                ch.consume()
+                                                if (!ch.pressed) { tapped = true; break }
+                                            }
+                                            if (tapped) {
+                                                selectedIds = if (msg.id in selectedIds) selectedIds - msg.id else selectedIds + msg.id
+                                                if (selectedIds.isEmpty()) selectionMode = false
+                                            }
+                                        }
+                                    },
+                            ) {
+                                MessageBubble(
+                                    message = msg,
+                                    isMine = msg.sender.id == currentUserId,
+                                    allMessages = messages,
+                                    onLongClick = {},
+                                )
+                            }
+                        }
+                    } else {
+                        MessageBubble(
+                            message = msg,
+                            isMine = msg.sender.id == currentUserId,
+                            allMessages = messages,
+                            onLongClick = { vm.selectMessage(msg) },
+                        )
+                    }
                 }
             }
         }
@@ -727,6 +837,16 @@ fun ChatScreen(
                         },
                     )
                 }
+                // Select — enter multi-select with this message pre-checked
+                AttachOption(
+                    icon = { Icon(Icons.Default.CheckBox, null) },
+                    label = "Выбрать",
+                    onClick = {
+                        selectionMode = true
+                        selectedIds = setOf(msg.id)
+                        vm.clearSelection()
+                    },
+                )
                 // Delete — always (own = for everyone option, other = for me only)
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                 AttachOption(
@@ -900,6 +1020,90 @@ fun ChatScreen(
             },
         )
     }
+
+    // ── Multi-delete confirmation ───────────────────────────────────────────────
+    if (showMultiDeleteConfirm && selectedIds.isNotEmpty()) {
+        val hasOwn = messages.filter { it.id in selectedIds }.any { it.sender.id == currentUserId }
+        AlertDialog(
+            onDismissRequest = { showMultiDeleteConfirm = false },
+            title = { Text("Удалить ${selectedIds.size} сообщ.?") },
+            text = null,
+            confirmButton = {
+                Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                    if (hasOwn) {
+                        TextButton(
+                            onClick = {
+                                val ids = selectedIds.toList()
+                                ids.forEach { id -> vm.deleteMessage(id) }
+                                showMultiDeleteConfirm = false
+                                selectionMode = false; selectedIds = emptySet()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Удалить у всех", color = MaterialTheme.colorScheme.error) }
+                    }
+                    TextButton(
+                        onClick = {
+                            val ids = selectedIds.toList()
+                            ids.forEach { id -> vm.deleteMessageForMe(id) }
+                            showMultiDeleteConfirm = false
+                            selectionMode = false; selectedIds = emptySet()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Удалить у меня", color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMultiDeleteConfirm = false }) { Text("Отмена") }
+            },
+        )
+    }
+
+    // ── Multi-forward picker ────────────────────────────────────────────────────
+    if (showMultiForwardPicker && selectedIds.isNotEmpty()) {
+        val msgsToForward = messages.filter { it.id in selectedIds }
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showMultiForwardPicker = false },
+            sheetState = sheetState,
+        ) {
+            Column(modifier = Modifier.padding(bottom = 32.dp)) {
+                Text(
+                    "Переслать в...",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                )
+                HorizontalDivider()
+                conversationsForPicker.filter { it.id != conversationId }.forEach { conv ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .combinedClickable(onClick = {
+                                msgsToForward.forEach { m -> vm.forwardMessage(m, conv.id) }
+                                showMultiForwardPicker = false
+                                selectionMode = false; selectedIds = emptySet()
+                            })
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier.size(40.dp).background(
+                                MaterialTheme.colorScheme.primary, CircleShape
+                            ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                (conv.name ?: "?").take(1).uppercase(),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                        }
+                        Text(conv.name ?: "Чат", style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ── LOCKED recording bar ───────────────────────────────────────────────────────
@@ -962,7 +1166,11 @@ private fun VoicePreviewBar(
     onDelete: () -> Unit,
     onTogglePlay: () -> Unit,
     onSend: () -> Unit,
+    onSeek: (Float) -> Unit = {},
 ) {
+    var isSeeking by remember { mutableStateOf(false) }
+    var seekValue by remember { mutableFloatStateOf(0f) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -980,7 +1188,7 @@ private fun VoicePreviewBar(
             )
         }
 
-        // ▶/⏸ Play + progress bar + duration
+        // ▶/⏸ Play
         IconButton(onClick = onTogglePlay) {
             Icon(
                 imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -988,17 +1196,25 @@ private fun VoicePreviewBar(
                 tint = MaterialTheme.colorScheme.primary,
             )
         }
+
+        // Seekable progress + duration
         Column(modifier = Modifier.weight(1f)) {
-            LinearProgressIndicator(
-                progress = { progress },
+            Slider(
+                value = if (isSeeking) seekValue else progress,
+                onValueChange = { isSeeking = true; seekValue = it },
+                onValueChangeFinished = { onSeek(seekValue); isSeeking = false },
                 modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.primary,
+                colors = SliderDefaults.colors(
+                    thumbColor = MaterialTheme.colorScheme.primary,
+                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                ),
             )
-            Spacer(Modifier.height(2.dp))
+            val displaySeconds = if (isSeeking) (seekValue * durationSeconds).toInt() else durationSeconds
             Text(
-                formatDuration(durationSeconds),
+                formatDuration(displaySeconds),
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp),
             )
         }
 
@@ -1241,6 +1457,8 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
     var isPlaying by remember { mutableStateOf(false) }
     var isPreparing by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
+    var isSeeking by remember { mutableStateOf(false) }
+    var seekValue by remember { mutableFloatStateOf(0f) }
     var loadError by remember { mutableStateOf(false) }
     val player = remember { mutableStateOf<MediaPlayer?>(null) }
 
@@ -1251,7 +1469,7 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
             val mp = player.value
-            if (mp != null && mp.isPlaying) {
+            if (mp != null && mp.isPlaying && !isSeeking) {
                 progress = mp.currentPosition.toFloat() / mp.duration.toFloat()
             }
             delay(200)
@@ -1352,18 +1570,42 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
                 }
             }
             Column(modifier = Modifier.weight(1f)) {
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth(),
-                    color = if (loadError) MaterialTheme.colorScheme.error else textColor,
-                    trackColor = textColor.copy(alpha = 0.2f),
-                )
-                Spacer(Modifier.height(2.dp))
+                if (loadError) {
+                    LinearProgressIndicator(
+                        progress = { 0f },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.error,
+                        trackColor = MaterialTheme.colorScheme.error.copy(alpha = 0.2f),
+                    )
+                } else {
+                    Slider(
+                        value = if (isSeeking) seekValue else progress,
+                        onValueChange = { isSeeking = true; seekValue = it },
+                        onValueChangeFinished = {
+                            player.value?.let { mp ->
+                                mp.seekTo((seekValue * mp.duration).toInt().coerceAtLeast(0))
+                            }
+                            progress = seekValue
+                            isSeeking = false
+                        },
+                        enabled = !isPreparing && player.value != null,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = SliderDefaults.colors(
+                            thumbColor = textColor,
+                            activeTrackColor = textColor,
+                            inactiveTrackColor = textColor.copy(alpha = 0.2f),
+                            disabledThumbColor = textColor.copy(alpha = 0.3f),
+                            disabledActiveTrackColor = textColor.copy(alpha = 0.3f),
+                            disabledInactiveTrackColor = textColor.copy(alpha = 0.15f),
+                        ),
+                    )
+                }
                 Text(
                     text = if (loadError) "Ошибка загрузки"
                            else att?.duration?.let { formatDuration(it.toInt()) } ?: "—",
                     fontSize = 10.sp,
                     color = if (loadError) MaterialTheme.colorScheme.error else textColor.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(start = 4.dp),
                 )
             }
         }
