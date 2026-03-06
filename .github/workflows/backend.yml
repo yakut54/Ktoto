@@ -8,6 +8,7 @@ on:
       - 'packages/**'
       - 'pnpm-lock.yaml'
       - '.github/workflows/backend.yml'
+      - 'docker/**'
   pull_request:
     branches: [main]
     paths:
@@ -138,6 +139,10 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             cd /opt/ktoto/docker
+
+            # Ensure MINIO_PUBLIC_ENDPOINT is set for presigned URL generation
+            sed -i '/^MINIO_PUBLIC_ENDPOINT=/d' .env.prod
+            echo "MINIO_PUBLIC_ENDPOINT=http://31.128.39.216:9000" >> .env.prod
 
             # Логинимся в GHCR
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u yakut54 --password-stdin || true
