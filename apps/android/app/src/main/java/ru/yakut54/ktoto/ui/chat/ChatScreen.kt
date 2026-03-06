@@ -760,34 +760,33 @@ fun ChatScreen(
     if (showDeleteConfirm != null) {
         val msgToDelete = showDeleteConfirm!!
         val isMineDelete = msgToDelete.sender.id == currentUserId
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = null },
-            title = { Text("Удалить сообщение?") },
-            text = null,
-            confirmButton = {
-                Column(modifier = Modifier.padding(bottom = 8.dp)) {
+        Dialog(onDismissRequest = { showDeleteConfirm = null }) {
+            Surface(shape = RoundedCornerShape(20.dp), tonalElevation = 6.dp) {
+                Column(modifier = Modifier.padding(top = 24.dp, bottom = 8.dp)) {
+                    Text(
+                        "Удалить сообщение?",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                    )
+                    Spacer(Modifier.height(8.dp))
                     if (isMineDelete) {
                         TextButton(
-                            onClick = {
-                                vm.deleteMessage(msgToDelete.id)
-                                showDeleteConfirm = null
-                            },
-                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { vm.deleteMessage(msgToDelete.id); showDeleteConfirm = null },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                         ) { Text("Удалить у всех", color = MaterialTheme.colorScheme.error) }
                     }
                     TextButton(
-                        onClick = {
-                            vm.deleteMessageForMe(msgToDelete.id)
-                            showDeleteConfirm = null
-                        },
-                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { vm.deleteMessageForMe(msgToDelete.id); showDeleteConfirm = null },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                     ) { Text("Удалить у меня", color = MaterialTheme.colorScheme.error) }
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    TextButton(
+                        onClick = { showDeleteConfirm = null },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    ) { Text("Отмена") }
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = null }) { Text("Отмена") }
-            },
-        )
+            }
+        }
     }
 
     // Attach bottom sheet — gallery + file
@@ -953,38 +952,39 @@ fun ChatScreen(
     // ── Multi-delete confirmation ───────────────────────────────────────────────
     if (showMultiDeleteConfirm && selectedIds.isNotEmpty()) {
         val hasOwn = messages.filter { it.id in selectedIds }.any { it.sender.id == currentUserId }
-        AlertDialog(
-            onDismissRequest = { showMultiDeleteConfirm = false },
-            title = { Text("Удалить ${selectedIds.size} сообщ.?") },
-            text = null,
-            confirmButton = {
-                Column(modifier = Modifier.padding(bottom = 8.dp)) {
+        Dialog(onDismissRequest = { showMultiDeleteConfirm = false }) {
+            Surface(shape = RoundedCornerShape(20.dp), tonalElevation = 6.dp) {
+                Column(modifier = Modifier.padding(top = 24.dp, bottom = 8.dp)) {
+                    Text(
+                        "Удалить ${selectedIds.size} сообщ.?",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                    )
+                    Spacer(Modifier.height(8.dp))
                     if (hasOwn) {
                         TextButton(
                             onClick = {
-                                val ids = selectedIds.toList()
-                                ids.forEach { id -> vm.deleteMessage(id) }
-                                showMultiDeleteConfirm = false
-                                selectionMode = false; selectedIds = emptySet()
+                                selectedIds.toList().forEach { vm.deleteMessage(it) }
+                                showMultiDeleteConfirm = false; selectionMode = false; selectedIds = emptySet()
                             },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                         ) { Text("Удалить у всех", color = MaterialTheme.colorScheme.error) }
                     }
                     TextButton(
                         onClick = {
-                            val ids = selectedIds.toList()
-                            ids.forEach { id -> vm.deleteMessageForMe(id) }
-                            showMultiDeleteConfirm = false
-                            selectionMode = false; selectedIds = emptySet()
+                            selectedIds.toList().forEach { vm.deleteMessageForMe(it) }
+                            showMultiDeleteConfirm = false; selectionMode = false; selectedIds = emptySet()
                         },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                     ) { Text("Удалить у меня", color = MaterialTheme.colorScheme.error) }
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    TextButton(
+                        onClick = { showMultiDeleteConfirm = false },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    ) { Text("Отмена") }
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { showMultiDeleteConfirm = false }) { Text("Отмена") }
-            },
-        )
+            }
+        }
     }
 
     // ── Multi-forward picker ────────────────────────────────────────────────────
