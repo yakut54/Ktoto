@@ -104,12 +104,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.androidx.compose.koinViewModel
 import androidx.activity.compose.BackHandler
-import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Redo
 import androidx.compose.material3.Checkbox
+import androidx.compose.foundation.Canvas
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.PointerEventPass
 import ru.yakut54.ktoto.data.model.Attachment
 import ru.yakut54.ktoto.data.model.Message
@@ -132,7 +135,6 @@ fun ChatScreen(
     val previewDuration by vm.previewDuration.collectAsState()
     val previewPlaying by vm.previewPlaying.collectAsState()
     val previewProgress by vm.previewProgress.collectAsState()
-    val selectedMessage by vm.selectedMessage.collectAsState()
     val replyTo by vm.replyTo.collectAsState()
     val editingMessage by vm.editingMessage.collectAsState()
 
@@ -277,6 +279,18 @@ fun ChatScreen(
                             }) {
                                 Icon(Icons.Default.ContentCopy, "Копировать")
                             }
+                        }
+                        val singleOwnText = selectedIds.size == 1 &&
+                            selectedMessages.firstOrNull()?.sender?.id == currentUserId &&
+                            selectedMessages.firstOrNull()?.type == "text"
+                        if (singleOwnText) {
+                            IconButton(onClick = {
+                                selectedMessages.first().let {
+                                    vm.startEditing(it)
+                                    selectionMode = false
+                                    selectedIds = emptySet()
+                                }
+                            }) { Icon(Icons.Default.Edit, "Редактировать") }
                         }
                         IconButton(onClick = {
                             showMultiForwardPicker = true
@@ -681,26 +695,28 @@ fun ChatScreen(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             items(messages, key = { it.id }) { msg ->
-                val isSelected = selectedMessage?.id == msg.id
                 val isBulkSelected = msg.id in selectedIds
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .then(
-                            when {
-                                isBulkSelected -> Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                                isSelected -> Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-                                else -> Modifier
-                            }
+                            if (isBulkSelected) Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                            else Modifier
                         )
                         .combinedClickable(
-                            onClick = {},
+                            onClick = {
+                                if (selectionMode) {
+                                    selectedIds = if (msg.id in selectedIds) selectedIds - msg.id else selectedIds + msg.id
+                                    if (selectedIds.isEmpty()) selectionMode = false
+                                }
+                            },
                             onLongClick = {
                                 if (selectionMode) {
                                     selectedIds = if (msg.id in selectedIds) selectedIds - msg.id else selectedIds + msg.id
                                     if (selectedIds.isEmpty()) selectionMode = false
                                 } else {
-                                    vm.selectMessage(msg)
+                                    selectionMode = true
+                                    selectedIds = setOf(msg.id)
                                 }
                             },
                         ),
@@ -757,7 +773,9 @@ fun ChatScreen(
                             message = msg,
                             isMine = msg.sender.id == currentUserId,
                             allMessages = messages,
-                            onLongClick = { vm.selectMessage(msg) },
+                            onLongClick = { selectionMode = true; selectedIds = setOf(msg.id) },
+                            onReply = { vm.setReplyTo(msg) },
+                            onForward = { showForwardPicker = msg; vm.loadConversationsForPicker() },
                         )
                     }
                 }
@@ -797,84 +815,6 @@ fun ChatScreen(
                 TextButton(onClick = { showDeleteConfirm = null }) { Text("Отмена") }
             },
         )
-    }
-
-    // Message action bottom sheet
-    if (selectedMessage != null) {
-        val msg = selectedMessage!!
-        val isMine = msg.sender.id == currentUserId
-        val sheetState = rememberModalBottomSheetState()
-        ModalBottomSheet(
-            onDismissRequest = { vm.clearSelection() },
-            sheetState = sheetState,
-            dragHandle = { BottomSheetDefaults.DragHandle() },
-        ) {
-            Column(modifier = Modifier.padding(bottom = 32.dp)) {
-                // Reply — always
-                AttachOption(
-                    icon = { Icon(Icons.AutoMirrored.Filled.Reply, null) },
-                    label = "Ответить",
-                    onClick = {
-                        vm.setReplyTo(msg)
-                        vm.clearSelection()
-                    },
-                )
-                // Copy — text only
-                if (!msg.content.isNullOrBlank()) {
-                    AttachOption(
-                        icon = { Icon(Icons.Default.ContentCopy, null) },
-                        label = "Копировать",
-                        onClick = {
-                            clipboard.setPrimaryClip(
-                                android.content.ClipData.newPlainText("message", msg.content)
-                            )
-                            vm.clearSelection()
-                        },
-                    )
-                }
-                // Forward — always
-                AttachOption(
-                    icon = { Icon(Icons.AutoMirrored.Filled.Reply, null) },
-                    label = "Переслать",
-                    onClick = {
-                        showForwardPicker = msg
-                        vm.loadConversationsForPicker()
-                        vm.clearSelection()
-                    },
-                )
-                // Edit — own text only
-                if (isMine && msg.type == "text") {
-                    AttachOption(
-                        icon = { Icon(Icons.Default.Edit, null) },
-                        label = "Редактировать",
-                        onClick = {
-                            vm.startEditing(msg)
-                            vm.clearSelection()
-                        },
-                    )
-                }
-                // Select — enter multi-select with this message pre-checked
-                AttachOption(
-                    icon = { Icon(Icons.Default.CheckBox, null) },
-                    label = "Выбрать",
-                    onClick = {
-                        selectionMode = true
-                        selectedIds = setOf(msg.id)
-                        vm.clearSelection()
-                    },
-                )
-                // Delete — always (own = for everyone option, other = for me only)
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                AttachOption(
-                    icon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
-                    label = "Удалить",
-                    onClick = {
-                        showDeleteConfirm = msg
-                        vm.clearSelection()
-                    },
-                )
-            }
-        }
     }
 
     // Attach bottom sheet — gallery + file
@@ -1332,7 +1272,14 @@ private fun AttachOption(icon: @Composable () -> Unit, label: String, onClick: (
 // ── Message bubbles ────────────────────────────────────────────────────────────
 
 @Composable
-private fun MessageBubble(message: Message, isMine: Boolean, allMessages: List<Message> = emptyList(), onLongClick: () -> Unit = {}) {
+private fun MessageBubble(
+    message: Message,
+    isMine: Boolean,
+    allMessages: List<Message> = emptyList(),
+    onLongClick: () -> Unit = {},
+    onReply: (() -> Unit)? = null,
+    onForward: (() -> Unit)? = null,
+) {
     val bubbleColor = if (isMine) MaterialTheme.colorScheme.primary
                       else MaterialTheme.colorScheme.surfaceVariant
     val textColor = if (isMine) MaterialTheme.colorScheme.onPrimary
@@ -1350,7 +1297,11 @@ private fun MessageBubble(message: Message, isMine: Boolean, allMessages: List<M
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (isMine && (onReply != null || onForward != null)) {
+            BubbleQuickActions(onReply = onReply, onForward = onForward)
+        }
         Column(
             modifier = Modifier
                 .widthIn(max = 300.dp)
@@ -1438,6 +1389,9 @@ private fun MessageBubble(message: Message, isMine: Boolean, allMessages: List<M
                     }
                 }
             }
+        }
+        if (!isMine && (onReply != null || onForward != null)) {
+            BubbleQuickActions(onReply = onReply, onForward = onForward)
         }
     }
 }
@@ -1659,63 +1613,52 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
                     )
                 }
             }
-            Column(modifier = Modifier.weight(1f)) {
-                if (loadError) {
-                    LinearProgressIndicator(
-                        progress = { 0f },
-                        modifier = Modifier.fillMaxWidth().padding(end = 4.dp),
-                        color = MaterialTheme.colorScheme.error,
-                        trackColor = MaterialTheme.colorScheme.error.copy(alpha = 0.2f),
-                    )
-                } else {
-                    Slider(
-                        value = if (isSeeking) seekValue else progress,
-                        onValueChange = { isSeeking = true; seekValue = it },
-                        onValueChangeFinished = {
-                            player.value?.let { mp ->
-                                mp.seekTo((seekValue * mp.duration).toInt().coerceAtLeast(0))
-                            }
-                            progress = seekValue
-                            isSeeking = false
-                        },
-                        enabled = !isPreparing && player.value != null,
-                        modifier = Modifier.fillMaxWidth().padding(end = 4.dp),
-                        colors = SliderDefaults.colors(
-                            thumbColor = textColor,
-                            activeTrackColor = textColor,
-                            inactiveTrackColor = textColor.copy(alpha = 0.2f),
-                            disabledThumbColor = textColor.copy(alpha = 0.3f),
-                            disabledActiveTrackColor = textColor.copy(alpha = 0.3f),
-                            disabledInactiveTrackColor = textColor.copy(alpha = 0.15f),
-                        ),
-                    )
-                }
-                Text(
-                    text = if (loadError) "Ошибка загрузки"
-                           else att?.duration?.let { formatDuration(it.toInt()) } ?: "—",
-                    fontSize = 10.sp,
-                    color = if (loadError) MaterialTheme.colorScheme.error else textColor.copy(alpha = 0.7f),
-                    modifier = Modifier.padding(start = 4.dp),
+            if (loadError) {
+                LinearProgressIndicator(
+                    progress = { 0f },
+                    modifier = Modifier.weight(1f).padding(end = 6.dp),
+                    color = MaterialTheme.colorScheme.error,
+                    trackColor = MaterialTheme.colorScheme.error.copy(alpha = 0.2f),
+                )
+            } else {
+                AudioTrack(
+                    value = if (isSeeking) seekValue else progress,
+                    onValueChange = { isSeeking = true; seekValue = it },
+                    onValueChangeFinished = {
+                        player.value?.let { mp ->
+                            mp.seekTo((seekValue * mp.duration).toInt().coerceAtLeast(0))
+                        }
+                        progress = seekValue
+                        isSeeking = false
+                    },
+                    enabled = !isPreparing && player.value != null,
+                    trackColor = textColor,
+                    modifier = Modifier.weight(1f).height(20.dp).padding(end = 6.dp),
                 )
             }
         }
         Row(
-            modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
-                text = formatMessageTime(message.createdAt),
+                text = if (loadError) "Ошибка загрузки"
+                       else att?.duration?.let { formatDuration(it.toInt()) } ?: "—",
                 fontSize = 10.sp,
-                color = textColor.copy(alpha = 0.6f),
+                color = if (loadError) MaterialTheme.colorScheme.error else textColor.copy(alpha = 0.7f),
+                modifier = Modifier.padding(start = 4.dp),
             )
-            if (isMine) {
-                Icon(
-                    imageVector = if (message.readByOthers) Icons.Default.DoneAll else Icons.Default.Done,
-                    contentDescription = null,
-                    tint = if (message.readByOthers) textColor else textColor.copy(alpha = 0.5f),
-                    modifier = Modifier.size(14.dp),
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = formatMessageTime(message.createdAt),
+                    fontSize = 10.sp,
+                    color = textColor.copy(alpha = 0.6f),
                 )
+                if (isMine) DeliveryIcon(message, textColor)
             }
         }
     }
@@ -1804,6 +1747,87 @@ private fun formatFileSize(bytes: Long): String = when {
     bytes < 1024 -> "$bytes Б"
     bytes < 1024 * 1024 -> "${bytes / 1024} КБ"
     else -> "%.1f МБ".format(bytes / (1024.0 * 1024.0))
+}
+
+@Composable
+private fun BubbleQuickActions(
+    onReply: (() -> Unit)?,
+    onForward: (() -> Unit)?,
+) {
+    Row {
+        if (onReply != null) {
+            IconButton(onClick = onReply, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Reply,
+                    contentDescription = "Ответить",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+        if (onForward != null) {
+            IconButton(onClick = onForward, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Default.Redo,
+                    contentDescription = "Переслать",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AudioTrack(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    enabled: Boolean = true,
+    trackColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    val density = LocalDensity.current
+    val trackHeightPx = with(density) { 2.5.dp.toPx() }
+    val thumbRadiusPx = with(density) { 5.dp.toPx() }
+    Canvas(modifier = modifier.pointerInput(enabled) {
+        if (!enabled) return@pointerInput
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            down.consume()
+            onValueChange((down.position.x / size.width).coerceIn(0f, 1f))
+            while (true) {
+                val event = awaitPointerEvent()
+                val ch = event.changes.firstOrNull() ?: break
+                if (!ch.pressed) break
+                ch.consume()
+                onValueChange((ch.position.x / size.width).coerceIn(0f, 1f))
+            }
+            onValueChangeFinished()
+        }
+    }) {
+        val cy = size.height / 2f
+        val trackStart = thumbRadiusPx
+        val trackEnd = size.width - thumbRadiusPx
+        val thumbX = (trackStart + (trackEnd - trackStart) * value.coerceIn(0f, 1f))
+        drawLine(
+            color = trackColor.copy(alpha = 0.3f),
+            start = Offset(trackStart, cy),
+            end = Offset(trackEnd, cy),
+            strokeWidth = trackHeightPx,
+            cap = StrokeCap.Round,
+        )
+        if (value > 0f) {
+            drawLine(
+                color = trackColor,
+                start = Offset(trackStart, cy),
+                end = Offset(thumbX, cy),
+                strokeWidth = trackHeightPx,
+                cap = StrokeCap.Round,
+            )
+        }
+        drawCircle(color = trackColor, radius = thumbRadiusPx, center = Offset(thumbX, cy))
+    }
 }
 
 /**
