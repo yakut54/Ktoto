@@ -1695,14 +1695,7 @@ private fun FileBubble(message: Message, isMine: Boolean, textColor: Color) {
                 fontSize = 10.sp,
                 color = textColor.copy(alpha = 0.6f),
             )
-            if (isMine) {
-                Icon(
-                    imageVector = if (message.readByOthers) Icons.Default.DoneAll else Icons.Default.Done,
-                    contentDescription = null,
-                    tint = if (message.readByOthers) textColor else textColor.copy(alpha = 0.5f),
-                    modifier = Modifier.size(14.dp),
-                )
-            }
+            if (isMine) { DeliveryIcon(message, textColor) }
         }
     }
 }
@@ -1833,19 +1826,20 @@ private fun AudioTrack(
 
 /**
  * Returns the correct delivery-status icon for own messages:
- *  !isDelivered → Done (1 gray)  = still sending
- *  isDelivered && !readByOthers → DoneAll (2 gray) = delivered to server
- *  isDelivered && readByOthers  → DoneAll (2 bright) = read by recipient
+ *  !isDelivered → Done (1 gray)       = sending, not on server yet
+ *  isDelivered && !readByOthers → DoneAll (2 gray)  = delivered, not read
+ *  isDelivered && readByOthers  → DoneAll (2 green) = read
  */
 @Composable
 private fun DeliveryIcon(message: ru.yakut54.ktoto.data.model.Message, textColor: Color) {
+    val readColor = Color(0xFF4CAF50)
     Icon(
         imageVector = if (message.isDelivered) Icons.Default.DoneAll else Icons.Default.Done,
         contentDescription = null,
         tint = when {
-            !message.isDelivered -> textColor.copy(alpha = 0.45f)
-            message.readByOthers -> textColor
-            else -> textColor.copy(alpha = 0.45f)
+            !message.isDelivered  -> textColor.copy(alpha = 0.45f)
+            message.readByOthers  -> readColor
+            else                  -> textColor.copy(alpha = 0.45f)
         },
         modifier = Modifier.size(14.dp),
     )
