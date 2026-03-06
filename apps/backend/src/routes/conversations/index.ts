@@ -304,6 +304,7 @@ export async function conversationRoutes(app: FastifyInstance) {
             sender: { id: r.user_id, username: r.username, avatarUrl: r.avatar_url },
             conversationId: convId,
             attachment,
+            isDelivered: true,
             readByOthers: maxOtherReadAt !== null && r.user_id === userId && r.created_at <= maxOtherReadAt,
           }
         }),
@@ -458,6 +459,7 @@ export async function conversationRoutes(app: FastifyInstance) {
           sender: { id: userId, username: userRow.rows[0].username, avatarUrl: userRow.rows[0].avatar_url },
           conversationId: convId,
           attachment,
+          isDelivered: true,
         }
 
         const participants = await app.pg.query<{ user_id: string }>(
@@ -539,6 +541,7 @@ export async function conversationRoutes(app: FastifyInstance) {
             createdAt: fwdMsg.created_at, replyToId: null,
             sender: { id: userId, username: userRow.rows[0].username, avatarUrl: userRow.rows[0].avatar_url },
             conversationId: convId, attachment: fwdAttachment,
+            isDelivered: true,
           }
           const participants = await app.pg.query<{ user_id: string }>(
             `SELECT user_id FROM conversation_participants WHERE conversation_id=$1`, [convId],
@@ -583,6 +586,7 @@ export async function conversationRoutes(app: FastifyInstance) {
           sender: { id: userId, username: userRow.rows[0].username, avatarUrl: userRow.rows[0].avatar_url },
           conversationId: convId,
           attachment: null,
+          isDelivered: true,
         }
 
         const participants = await app.pg.query<{ user_id: string }>(
