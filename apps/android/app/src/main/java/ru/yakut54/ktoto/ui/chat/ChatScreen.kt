@@ -129,7 +129,7 @@ fun ChatScreen(
 
     val context = LocalContext.current
     val density = LocalDensity.current
-    val clipboard = LocalClipboardManager.current
+    val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
 
     LaunchedEffect(conversationId) { vm.init(conversationId) }
 
@@ -614,7 +614,9 @@ fun ChatScreen(
                         icon = { Icon(Icons.Default.ContentCopy, null) },
                         label = "Копировать",
                         onClick = {
-                            clipboard.setText(AnnotatedString(msg.content))
+                            clipboard.setPrimaryClip(
+                                android.content.ClipData.newPlainText("message", msg.content)
+                            )
                             vm.clearSelection()
                         },
                     )
