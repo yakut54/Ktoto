@@ -760,7 +760,6 @@ fun ChatScreen(
     // Delete confirmation dialog — "для меня" / "для всех"
     if (showDeleteConfirm != null) {
         val msgToDelete = showDeleteConfirm!!
-        val isMineDelete = msgToDelete.sender.id == currentUserId
         Dialog(onDismissRequest = { showDeleteConfirm = null }) {
             Surface(shape = RoundedCornerShape(20.dp), tonalElevation = 6.dp) {
                 Column(modifier = Modifier.padding(top = 24.dp, bottom = 8.dp)) {
@@ -770,12 +769,10 @@ fun ChatScreen(
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
                     )
                     Spacer(Modifier.height(8.dp))
-                    if (isMineDelete) {
-                        TextButton(
-                            onClick = { vm.deleteMessage(msgToDelete.id); showDeleteConfirm = null },
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                        ) { Text("Удалить у всех", color = MaterialTheme.colorScheme.error) }
-                    }
+                    TextButton(
+                        onClick = { vm.deleteMessage(msgToDelete.id); showDeleteConfirm = null },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    ) { Text("Удалить у всех", color = MaterialTheme.colorScheme.error) }
                     TextButton(
                         onClick = { vm.deleteMessageForMe(msgToDelete.id); showDeleteConfirm = null },
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
@@ -953,7 +950,6 @@ fun ChatScreen(
 
     // ── Multi-delete confirmation ───────────────────────────────────────────────
     if (showMultiDeleteConfirm && selectedIds.isNotEmpty()) {
-        val hasOwn = messages.filter { it.id in selectedIds }.any { it.sender.id == currentUserId }
         Dialog(onDismissRequest = { showMultiDeleteConfirm = false }) {
             Surface(shape = RoundedCornerShape(20.dp), tonalElevation = 6.dp) {
                 Column(modifier = Modifier.padding(top = 24.dp, bottom = 8.dp)) {
@@ -963,15 +959,13 @@ fun ChatScreen(
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
                     )
                     Spacer(Modifier.height(8.dp))
-                    if (hasOwn) {
-                        TextButton(
-                            onClick = {
-                                selectedIds.toList().forEach { vm.deleteMessage(it) }
-                                showMultiDeleteConfirm = false; selectionMode = false; selectedIds = emptySet()
-                            },
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                        ) { Text("Удалить у всех", color = MaterialTheme.colorScheme.error) }
-                    }
+                    TextButton(
+                        onClick = {
+                            selectedIds.toList().forEach { vm.deleteMessage(it) }
+                            showMultiDeleteConfirm = false; selectionMode = false; selectedIds = emptySet()
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    ) { Text("Удалить у всех", color = MaterialTheme.colorScheme.error) }
                     TextButton(
                         onClick = {
                             selectedIds.toList().forEach { vm.deleteMessageForMe(it) }

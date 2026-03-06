@@ -687,11 +687,12 @@ export async function conversationRoutes(app: FastifyInstance) {
       const { id: convId, msgId } = request.params
 
       const msgCheck = await app.pg.query<{ user_id: string }>(
-        `SELECT user_id FROM messages WHERE id=$1 AND conversation_id=$2 AND deleted_at IS NULL`,
-        [msgId, convId],
+        `SELECT m.user_id FROM messages m
+         JOIN conversation_participants cp ON cp.conversation_id = m.conversation_id AND cp.user_id = $2
+         WHERE m.id=$1 AND m.conversation_id=$3 AND m.deleted_at IS NULL`,
+        [msgId, userId, convId],
       )
       if (!msgCheck.rows[0]) return reply.status(404).send({ error: 'Message not found' })
-      if (msgCheck.rows[0].user_id !== userId) return reply.status(403).send({ error: 'Forbidden' })
 
       await app.pg.query(`UPDATE messages SET deleted_at=NOW() WHERE id=$1`, [msgId])
 
