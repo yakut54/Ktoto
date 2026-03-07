@@ -12,6 +12,10 @@
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <application
         android:name=".KtotoApp"
@@ -61,6 +65,11 @@
         <service
             android:name=".service.PushService"
             android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
+        <service
+            android:name=".service.CallService"
+            android:foregroundServiceType="microphone"
             android:exported="false" />
 
         <provider

@@ -103,3 +103,58 @@ data class CreateConversationRequest(
 )
 
 data class RefreshResponse(val accessToken: String, val refreshToken: String)
+
+// ─── Call models ──────────────────────────────────────────────────────────────
+
+data class IceServerConfig(
+    val urls: String,
+    val username: String? = null,
+    val credential: String? = null,
+)
+
+data class TurnCredentials(
+    val ttl: Int,
+    val iceServers: List<IceServerConfig>,
+)
+
+/** Incoming call event received from Socket.IO */
+data class IncomingCallEvent(
+    val callId: String,
+    val fromUserId: String,
+    val fromUsername: String,
+    val fromAvatarUrl: String?,
+    val callType: String, // "audio" | "video"
+)
+
+/** SDP offer or answer */
+data class CallSdp(
+    val callId: String,
+    val sdp: SdpPayload,
+)
+
+data class SdpPayload(val type: String, val sdp: String)
+
+/** ICE candidate relay */
+data class CallIceCandidate(
+    val callId: String,
+    val candidate: IceCandidatePayload,
+)
+
+data class IceCandidatePayload(
+    val candidate: String,
+    val sdpMid: String?,
+    val sdpMLineIndex: Int?,
+)
+
+/** Call end / reject / cancel events */
+data class CallEndEvent(
+    val callId: String,
+    val reason: String?,
+    val duration: Int?,
+)
+
+data class CallMuteEvent(
+    val callId: String,
+    val muted: Boolean,
+    val fromUserId: String,
+)

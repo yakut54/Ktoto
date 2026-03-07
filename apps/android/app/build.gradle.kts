@@ -76,6 +76,9 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
 
+    // WebRTC
+    implementation(libs.stream.webrtc)
+
     // Test
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

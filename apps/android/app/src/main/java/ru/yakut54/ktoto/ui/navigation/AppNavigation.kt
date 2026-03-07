@@ -43,7 +43,10 @@ import ru.yakut54.ktoto.data.api.ApiService
 import ru.yakut54.ktoto.data.model.Conversation
 import ru.yakut54.ktoto.data.socket.SocketManager
 import ru.yakut54.ktoto.data.store.TokenStore
+import ru.yakut54.ktoto.call.CallState
 import ru.yakut54.ktoto.ui.auth.AuthScreen
+import ru.yakut54.ktoto.ui.call.CallScreen
+import ru.yakut54.ktoto.ui.call.CallViewModel
 import ru.yakut54.ktoto.ui.chat.ChatScreen
 import ru.yakut54.ktoto.ui.conversations.ConversationsScreen
 import ru.yakut54.ktoto.ui.newchat.NewChatScreen
@@ -59,6 +62,7 @@ object Routes {
     const val CONVERSATIONS = "conversations"
     const val NEW_CHAT = "new_chat"
     const val CHAT = "chat/{convId}/{convName}/{userId}/{otherId}"
+    const val CALL = "call"
 
     fun chat(convId: String, convName: String, userId: String, otherId: String = "") =
         "chat/$convId/${convName.ifBlank { "Чат" }}/$userId/${otherId.ifBlank { "_" }}"
@@ -69,10 +73,12 @@ object Routes {
 fun AppNavigation(
     pendingConversationId: StateFlow<String?> = MutableStateFlow(null),
     pendingShareData: StateFlow<SharePayload?> = MutableStateFlow(null),
+    pendingCallAction: StateFlow<String?> = MutableStateFlow(null),
 ) {
     val tokenStore: TokenStore = koinInject()
     val socketManager: SocketManager = koinInject()
     val apiService: ApiService = koinInject()
+    val callVm: CallViewModel = koinInject()
     val token by tokenStore.accessToken.collectAsState(initial = null)
     val currentUserId by tokenStore.userId.collectAsState(initial = "")
     val pendingConvId by pendingConversationId.collectAsState()
@@ -80,6 +86,30 @@ fun AppNavigation(
 
     val navController = rememberNavController()
     val currentRoute by navController.currentBackStackEntryAsState()
+    val callAction by pendingCallAction.collectAsState()
+    val callState by callVm.callState.collectAsState()
+
+    // Auto-navigate to call screen when incoming call arrives
+    LaunchedEffect(callState) {
+        when (callState) {
+            CallState.INCOMING_RINGING, CallState.OUTGOING_RINGING -> {
+                val route = currentRoute?.destination?.route
+                if (route != Routes.CALL) {
+                    navController.navigate(Routes.CALL) { launchSingleTop = true }
+                }
+            }
+            else -> {}
+        }
+    }
+
+    // Handle call action from notification (INCOMING_CALL intent extra)
+    LaunchedEffect(callAction) {
+        val action = callAction ?: return@LaunchedEffect
+        (pendingCallAction as? MutableStateFlow)?.value = null
+        if (action == "INCOMING_CALL" || action == "IN_CALL") {
+            navController.navigate(Routes.CALL) { launchSingleTop = true }
+        }
+    }
 
     // Share picker state
     var showSharePicker by remember { mutableStateOf(false) }
@@ -211,6 +241,10 @@ fun AppNavigation(
             )
         }
 
+        composable(Routes.CALL) {
+            CallScreen(onCallEnded = { navController.popBackStack() })
+        }
+
         composable(Routes.NEW_CHAT) {
             NewChatScreen(
                 onBack = { navController.popBackStack() },
@@ -245,6 +279,12 @@ fun AppNavigation(
                 onNavigateToChat = { targetConvId, targetConvName ->
                     navController.navigate(Routes.chat(targetConvId, targetConvName, userId))
                 },
+                onStartCall = if (otherId.isNotBlank()) {
+                    {
+                        callVm.startCall(otherId, convName, null, "audio")
+                        navController.navigate(Routes.CALL) { launchSingleTop = true }
+                    }
+                } else null,
                 sharePayload = shareData,
                 onShareConsumed = { (pendingShareData as? MutableStateFlow)?.value = null },
             )

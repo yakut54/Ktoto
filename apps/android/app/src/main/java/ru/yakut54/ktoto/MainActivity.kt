@@ -21,6 +21,7 @@ class MainActivity : ComponentActivity() {
 
     val pendingConversationId = MutableStateFlow<String?>(null)
     val pendingShareData = MutableStateFlow<SharePayload?>(null)
+    val pendingCallAction = MutableStateFlow<String?>(null)
 
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -33,6 +34,9 @@ class MainActivity : ComponentActivity() {
 
         intent?.getStringExtra("conversationId")?.let {
             pendingConversationId.value = it
+        }
+        intent?.getStringExtra("action")?.let {
+            pendingCallAction.value = it
         }
         handleShareIntent(intent)
 
@@ -53,6 +57,7 @@ class MainActivity : ComponentActivity() {
                 AppNavigation(
                     pendingConversationId = pendingConversationId,
                     pendingShareData = pendingShareData,
+                    pendingCallAction = pendingCallAction,
                 )
             }
         }
@@ -62,6 +67,9 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         intent.getStringExtra("conversationId")?.let {
             pendingConversationId.value = it
+        }
+        intent.getStringExtra("action")?.let {
+            pendingCallAction.value = it
         }
         handleShareIntent(intent)
     }
