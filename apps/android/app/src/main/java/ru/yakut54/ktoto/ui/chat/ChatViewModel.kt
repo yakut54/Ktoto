@@ -620,6 +620,7 @@ class ChatViewModel(
                     if (size < 0) break
                     info.size = size
                     info.presentationTimeUs = extractor.sampleTime + offsetUs
+                    @Suppress("WrongConstant")
                     info.flags = extractor.sampleFlags
                     muxer.writeSampleData(outputTrackIndex, buf, info)
                     extractor.advance()
