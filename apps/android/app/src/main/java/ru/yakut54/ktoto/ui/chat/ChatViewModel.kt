@@ -63,6 +63,9 @@ class ChatViewModel(
     private val _messages = MutableStateFlow<List<Message>>(emptyList())
     val messages: StateFlow<List<Message>> = _messages
 
+    private val _deletingIds = MutableStateFlow<Set<String>>(emptySet())
+    val deletingIds: StateFlow<Set<String>> = _deletingIds
+
     private val _sending = MutableStateFlow(false)
     val sending: StateFlow<Boolean> = _sending
 
@@ -194,7 +197,10 @@ class ChatViewModel(
             socketManager.deletedMessageIds
                 .filter { it.second == conversationId }
                 .collect { (msgId, _) ->
+                    _deletingIds.value = _deletingIds.value + msgId
+                    delay(280)
                     _messages.value = _messages.value.filter { it.id != msgId }
+                    _deletingIds.value = _deletingIds.value - msgId
                 }
         }
         viewModelScope.launch {
@@ -264,19 +270,34 @@ class ChatViewModel(
     fun cancelEditing() { _editingMessage.value = null }
 
     fun deleteMessage(msgId: String) {
-        viewModelScope.launch {
-            runCatching {
-                val token = tokenStore.accessToken.first() ?: return@launch
-                api.deleteMessage("Bearer $token", conversationId, msgId)
-                _messages.value = _messages.value.filter { it.id != msgId }
-            }.onFailure { android.util.Log.e("ChatViewModel", "deleteMessage failed", it) }
-        }
         clearSelection()
+        viewModelScope.launch {
+            _deletingIds.value = _deletingIds.value + msgId
+            runCatching {
+                val token = tokenStore.accessToken.first() ?: run {
+                    _deletingIds.value = _deletingIds.value - msgId
+                    return@launch
+                }
+                api.deleteMessage("Bearer $token", conversationId, msgId)
+            }.onFailure {
+                _deletingIds.value = _deletingIds.value - msgId
+                android.util.Log.e("ChatViewModel", "deleteMessage failed", it)
+                return@launch
+            }
+            delay(280)
+            _messages.value = _messages.value.filter { it.id != msgId }
+            _deletingIds.value = _deletingIds.value - msgId
+        }
     }
 
     fun deleteMessageForMe(msgId: String) {
-        _messages.value = _messages.value.filter { it.id != msgId }
         clearSelection()
+        viewModelScope.launch {
+            _deletingIds.value = _deletingIds.value + msgId
+            delay(280)
+            _messages.value = _messages.value.filter { it.id != msgId }
+            _deletingIds.value = _deletingIds.value - msgId
+        }
     }
 
     fun loadConversationsForPicker() {

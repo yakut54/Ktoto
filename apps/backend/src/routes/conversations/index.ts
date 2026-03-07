@@ -263,7 +263,7 @@ export async function conversationRoutes(app: FastifyInstance) {
          FROM messages m
          JOIN users u ON u.id = m.user_id
          LEFT JOIN file_attachments fa ON fa.message_id = m.id
-         LEFT JOIN messages rm ON rm.id = m.reply_to_id
+         LEFT JOIN messages rm ON rm.id = m.reply_to_id AND rm.deleted_at IS NULL
          LEFT JOIN users ru ON ru.id = rm.user_id
          WHERE m.conversation_id = $1
            AND m.deleted_at IS NULL
@@ -788,7 +788,7 @@ export async function conversationRoutes(app: FastifyInstance) {
         app.io.to(`user:${p.user_id}`).emit('message_deleted', payload)
       }
 
-      reply.status(204)
+      return reply.status(204).send()
     },
   )
 }

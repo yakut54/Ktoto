@@ -114,9 +114,13 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -126,6 +130,8 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.ui.geometry.Offset
@@ -168,6 +174,7 @@ fun ChatScreen(
     val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
 
     val partnerOnline by vm.partnerOnline.collectAsState()
+    val deletingIds by vm.deletingIds.collectAsState()
 
     LaunchedEffect(conversationId) {
         vm.init(conversationId, otherUserId)
@@ -832,14 +839,15 @@ fun ChatScreen(
                     label = "pressScale",
                 )
 
+                AnimatedVisibility(
+                    visible = msg.id !in deletingIds,
+                    exit = shrinkVertically(animationSpec = tween(260)) + fadeOut(animationSpec = tween(220)),
+                    modifier = Modifier.animateItem(
+                        placementSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                    ),
+                ) {
                 Box(
                     modifier = Modifier
-                        .animateItem(
-                            fadeOutSpec = androidx.compose.animation.core.tween(180),
-                            placementSpec = androidx.compose.animation.core.spring(
-                                stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
-                            ),
-                        )
                         .fillMaxWidth()
                         .background(
                             if (isBulkSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
@@ -983,6 +991,7 @@ fun ChatScreen(
                         }
                     }
                 }
+                } // AnimatedVisibility
             }
         }
     }
@@ -1091,8 +1100,9 @@ fun ChatScreen(
     if (showForwardPicker != null) {
         val msgToForward = showForwardPicker!!
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        var fwdSelected by remember { mutableStateOf(emptySet<String>()) }
         ModalBottomSheet(
-            onDismissRequest = { showForwardPicker = null },
+            onDismissRequest = { showForwardPicker = null; fwdSelected = emptySet() },
             sheetState = sheetState,
         ) {
             Column(modifier = Modifier.padding(bottom = 32.dp)) {
@@ -1103,15 +1113,14 @@ fun ChatScreen(
                 )
                 HorizontalDivider()
                 conversationsForPicker.filter { it.id != conversationId }.forEach { conv ->
+                    val sel = conv.id in fwdSelected
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .combinedClickable(onClick = {
-                                vm.forwardMessage(msgToForward, conv.id)
-                                showForwardPicker = null
-                                onNavigateToChat(conv.id, conv.name ?: "Чат")
-                            })
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                            .clickable {
+                                fwdSelected = if (sel) fwdSelected - conv.id else fwdSelected + conv.id
+                            }
+                            .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
@@ -1127,7 +1136,25 @@ fun ChatScreen(
                                 style = MaterialTheme.typography.titleMedium,
                             )
                         }
-                        Text(conv.name ?: "Чат", style = MaterialTheme.typography.bodyLarge)
+                        Text(conv.name ?: "Чат", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                        Checkbox(checked = sel, onCheckedChange = {
+                            fwdSelected = if (sel) fwdSelected - conv.id else fwdSelected + conv.id
+                        })
+                    }
+                }
+                if (fwdSelected.isNotEmpty()) {
+                    Button(
+                        onClick = {
+                            fwdSelected.forEach { cid -> vm.forwardMessage(msgToForward, cid) }
+                            val singleId = fwdSelected.singleOrNull()
+                            val singleName = conversationsForPicker.find { it.id == singleId }?.name
+                            showForwardPicker = null
+                            fwdSelected = emptySet()
+                            if (singleId != null && singleName != null) onNavigateToChat(singleId, singleName)
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Text("Отправить (${fwdSelected.size})")
                     }
                 }
             }
@@ -1253,8 +1280,9 @@ fun ChatScreen(
     if (showMultiForwardPicker && selectedIds.isNotEmpty()) {
         val msgsToForward = messages.filter { it.id in selectedIds }
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        var mfwdSelected by remember { mutableStateOf(emptySet<String>()) }
         ModalBottomSheet(
-            onDismissRequest = { showMultiForwardPicker = false },
+            onDismissRequest = { showMultiForwardPicker = false; mfwdSelected = emptySet() },
             sheetState = sheetState,
         ) {
             Column(modifier = Modifier.padding(bottom = 32.dp)) {
@@ -1265,16 +1293,14 @@ fun ChatScreen(
                 )
                 HorizontalDivider()
                 conversationsForPicker.filter { it.id != conversationId }.forEach { conv ->
+                    val sel = conv.id in mfwdSelected
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .combinedClickable(onClick = {
-                                msgsToForward.forEach { m -> vm.forwardMessage(m, conv.id) }
-                                showMultiForwardPicker = false
-                                selectionMode = false; selectedIds = emptySet()
-                                onNavigateToChat(conv.id, conv.name ?: "Чат")
-                            })
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                            .clickable {
+                                mfwdSelected = if (sel) mfwdSelected - conv.id else mfwdSelected + conv.id
+                            }
+                            .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
@@ -1290,7 +1316,28 @@ fun ChatScreen(
                                 style = MaterialTheme.typography.titleMedium,
                             )
                         }
-                        Text(conv.name ?: "Чат", style = MaterialTheme.typography.bodyLarge)
+                        Text(conv.name ?: "Чат", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                        Checkbox(checked = sel, onCheckedChange = {
+                            mfwdSelected = if (sel) mfwdSelected - conv.id else mfwdSelected + conv.id
+                        })
+                    }
+                }
+                if (mfwdSelected.isNotEmpty()) {
+                    Button(
+                        onClick = {
+                            mfwdSelected.forEach { cid ->
+                                msgsToForward.forEach { m -> vm.forwardMessage(m, cid) }
+                            }
+                            val singleId = mfwdSelected.singleOrNull()
+                            val singleName = conversationsForPicker.find { it.id == singleId }?.name
+                            showMultiForwardPicker = false
+                            mfwdSelected = emptySet()
+                            selectionMode = false; selectedIds = emptySet()
+                            if (singleId != null && singleName != null) onNavigateToChat(singleId, singleName)
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Text("Отправить (${mfwdSelected.size})")
                     }
                 }
             }
