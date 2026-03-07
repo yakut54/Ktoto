@@ -767,7 +767,7 @@ fun ChatScreen(
                 ) {
                     val swipeVal = swipeOffset.value
 
-                    // ── Reply indicator (swipe right) ──────────────────────────
+                    // ── Forward indicator (swipe right) ────────────────────────
                     if (swipeVal > 8f) {
                         val progress = (swipeVal / thresholdPx).coerceIn(0f, 1f)
                         Box(
@@ -776,14 +776,15 @@ fun ChatScreen(
                                 .padding(start = 12.dp)
                                 .size(36.dp)
                                 .graphicsLayer { scaleX = progress; scaleY = progress; alpha = progress }
-                                .background(MaterialTheme.colorScheme.primary, CircleShape),
+                                .background(MaterialTheme.colorScheme.secondary, CircleShape),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.Reply, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Icon(Icons.AutoMirrored.Filled.Reply, null, tint = Color.White,
+                                modifier = Modifier.size(18.dp).graphicsLayer { scaleX = -1f })
                         }
                     }
 
-                    // ── Forward indicator (swipe left) ──────────────────────────
+                    // ── Reply indicator (swipe left) ────────────────────────────
                     if (swipeVal < -8f) {
                         val progress = (-swipeVal / thresholdPx).coerceIn(0f, 1f)
                         Box(
@@ -792,11 +793,10 @@ fun ChatScreen(
                                 .padding(end = 12.dp)
                                 .size(36.dp)
                                 .graphicsLayer { scaleX = progress; scaleY = progress; alpha = progress }
-                                .background(MaterialTheme.colorScheme.secondary, CircleShape),
+                                .background(MaterialTheme.colorScheme.primary, CircleShape),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.Reply, null, tint = Color.White,
-                                modifier = Modifier.size(18.dp).graphicsLayer { scaleX = -1f })
+                            Icon(Icons.AutoMirrored.Filled.Reply, null, tint = Color.White, modifier = Modifier.size(18.dp))
                         }
                     }
 
@@ -820,13 +820,13 @@ fun ChatScreen(
                                                     newOffset >= thresholdPx -> {
                                                         actionTriggered = true
                                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                        vm.setReplyTo(msg)
+                                                        showForwardPicker = msg
+                                                        vm.loadConversationsForPicker()
                                                     }
                                                     newOffset <= -thresholdPx -> {
                                                         actionTriggered = true
                                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                        showForwardPicker = msg
-                                                        vm.loadConversationsForPicker()
+                                                        vm.setReplyTo(msg)
                                                     }
                                                 }
                                             }
