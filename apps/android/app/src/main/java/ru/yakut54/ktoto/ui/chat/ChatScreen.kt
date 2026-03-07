@@ -1325,61 +1325,91 @@ private fun VoicePreviewBar(
     onSend: () -> Unit,
     onSeek: (Float) -> Unit = {},
 ) {
-    var isSeeking by remember { mutableStateOf(false) }
-    var seekValue by remember { mutableFloatStateOf(0f) }
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+    val bars = remember {
+        IntArray(52) { i ->
+            (kotlin.math.sin(i * 0.63) * 35 + kotlin.math.cos(i * 1.27) * 22 + 55)
+                .toInt().coerceIn(12, 98)
+        }
+    }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
             .imePadding()
-            .padding(horizontal = 4.dp, vertical = 6.dp),
+            .padding(horizontal = 8.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // 🗑 Delete
-        IconButton(onClick = onDelete) {
-            Icon(
-                Icons.Default.Delete,
-                contentDescription = "Удалить",
-                tint = MaterialTheme.colorScheme.error,
-            )
+        IconButton(onClick = onDelete, modifier = Modifier.size(40.dp)) {
+            Icon(Icons.Default.Delete, "Удалить", tint = MaterialTheme.colorScheme.error)
         }
-
-        // ▶/⏸ Play
-        IconButton(onClick = onTogglePlay) {
-            Icon(
-                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                contentDescription = if (isPlaying) "Пауза" else "Прослушать",
-                tint = MaterialTheme.colorScheme.primary,
-            )
-        }
-
-        // Seekable progress + duration
-        Column(modifier = Modifier.weight(1f)) {
-            Slider(
-                value = if (isSeeking) seekValue else progress,
-                onValueChange = { isSeeking = true; seekValue = it },
-                onValueChangeFinished = { onSeek(seekValue); isSeeking = false },
-                modifier = Modifier.fillMaxWidth(),
-                colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.primary,
-                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                ),
-            )
-            val displaySeconds = if (isSeeking) (seekValue * durationSeconds).toInt() else durationSeconds
-            Text(
-                formatDuration(displaySeconds),
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 4.dp),
-            )
-        }
-
         Spacer(Modifier.width(4.dp))
 
-        // ✓ Send
+        // Waveform + play chip
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(52.dp)
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        onSeek((down.position.x / size.width).coerceIn(0f, 1f))
+                        waitForUpOrCancellation()
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val barW = 3.dp.toPx()
+                val spacing = size.width / bars.size
+                val centerY = size.height / 2f
+                val maxBarH = size.height * 0.85f
+                val progressX = size.width * progress
+                bars.forEachIndexed { i, amp ->
+                    val x = i * spacing + spacing / 2f
+                    val barH = maxBarH * (amp / 100f)
+                    drawLine(
+                        color = if (x <= progressX) primaryColor else trackColor,
+                        start = Offset(x, centerY - barH / 2f),
+                        end = Offset(x, centerY + barH / 2f),
+                        strokeWidth = barW,
+                        cap = StrokeCap.Round,
+                    )
+                }
+            }
+            // ▶ 0:06 chip overlay
+            Box(
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(50))
+                    .clickable { onTogglePlay() }
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = formatDuration(durationSeconds),
+                        fontSize = 12.sp,
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.width(4.dp))
+
+        // ✈ Send
         FilledIconButton(onClick = onSend, modifier = Modifier.size(48.dp)) {
-            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Отправить")
+            Icon(Icons.AutoMirrored.Filled.Send, "Отправить")
         }
     }
 }
@@ -1437,6 +1467,7 @@ private fun MessageBubble(
     }
 
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val minBubbleWidth = (screenWidthDp * 0.52f).dp
     val maxBubbleWidth = when {
         screenWidthDp <= 320 -> (screenWidthDp * 0.72f).dp
         screenWidthDp <= 360 -> (screenWidthDp * 0.74f).dp
@@ -1450,7 +1481,7 @@ private fun MessageBubble(
     ) {
         Column(
             modifier = Modifier
-                .widthIn(max = maxBubbleWidth)
+                .widthIn(min = if (effectiveType == "image") 0.dp else minBubbleWidth, max = maxBubbleWidth)
                 .background(
                     color = if (effectiveType == "image") Color.Transparent else bubbleColor,
                     shape = RoundedCornerShape(
