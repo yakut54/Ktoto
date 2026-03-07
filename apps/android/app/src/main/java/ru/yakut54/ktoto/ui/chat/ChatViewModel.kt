@@ -436,24 +436,28 @@ class ChatViewModel(
         if (_voiceState.value != VoiceState.LOCKED) return
         recordingTimerJob?.cancel()
         val duration = _recordingSeconds.value
+        val replyId = _replyTo.value?.id
+        _replyTo.value = null
         stopRecorder()
         val currentFile = voiceFile
         voiceFile = null
         val allSegments = voiceSegments.toList() + listOfNotNull(currentFile)
         voiceSegments.clear()
         resetVoiceState()
-        uploadVoiceSegments(allSegments, duration)
+        uploadVoiceSegments(allSegments, duration, replyId)
     }
 
     /** Tap → in PAUSED bar → sends all recorded segments */
     fun sendVoicePaused() {
         if (_voiceState.value != VoiceState.PAUSED) return
         val duration = _recordingSeconds.value
+        val replyId = _replyTo.value?.id
+        _replyTo.value = null
         releasePreviewPlayer()
         val allSegments = voiceSegments.toList()
         voiceSegments.clear()
         resetVoiceState()
-        uploadVoiceSegments(allSegments, duration)
+        uploadVoiceSegments(allSegments, duration, replyId)
     }
 
     // ── Voice: preview bar actions (PREVIEW state) ────────────────────────────
@@ -503,10 +507,12 @@ class ChatViewModel(
         if (_voiceState.value != VoiceState.PREVIEW) return
         val file = voiceFile ?: run { resetVoiceState(); return }
         val duration = _previewDuration.value
+        val replyId = _replyTo.value?.id
+        _replyTo.value = null
         releasePreviewPlayer()
         voiceFile = null
         resetVoiceState()
-        uploadVoiceSegments(listOf(file), duration)
+        uploadVoiceSegments(listOf(file), duration, replyId)
     }
 
     /** Tap 🗑 in PREVIEW bar → discards the recording */
@@ -638,7 +644,7 @@ class ChatViewModel(
      * Uploads voice message. If there are multiple segments they are merged first.
      * All source files are deleted after upload.
      */
-    private fun uploadVoiceSegments(segments: List<File>, duration: Int) {
+    private fun uploadVoiceSegments(segments: List<File>, duration: Int, replyId: String? = null) {
         viewModelScope.launch {
             _sending.value = true
             var mergedFile: File? = null
@@ -661,7 +667,9 @@ class ChatViewModel(
                 val filePart = MultipartBody.Part.createFormData(
                     "file", fileToSend.name, fileToSend.asRequestBody("audio/mp4".toMediaType())
                 )
-                val metaPart = Gson().toJson(mapOf("type" to "voice", "duration" to duration))
+                val metaMap = mutableMapOf<String, Any>("type" to "voice", "duration" to duration)
+                if (replyId != null) metaMap["reply_to_id"] = replyId
+                val metaPart = Gson().toJson(metaMap)
                     .toRequestBody("text/plain".toMediaType())
                 val msg = api.uploadMessage("Bearer $token", conversationId, filePart, metaPart)
                 _messages.value = if (_messages.value.none { it.id == msg.id }) {
