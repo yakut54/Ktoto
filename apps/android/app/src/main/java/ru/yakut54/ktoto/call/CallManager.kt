@@ -8,6 +8,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
 import android.util.Log
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -114,6 +115,8 @@ class CallManager(
     private var eglBase: EglBase? = null
     val eglBaseContext: EglBase.Context? get() = eglBase?.eglBaseContext
 
+    private val webRtcReady = CompletableDeferred<Unit>()
+
     // ─── WebRTC ───────────────────────────────────────────────────────────────
 
     private var peerConnectionFactory: PeerConnectionFactory? = null
@@ -157,7 +160,11 @@ class CallManager(
                 )
                 eglBase = EglBase.create()
                 Log.i(TAG, "WebRTC initialized OK")
-            }.onFailure { Log.e(TAG, "WebRTC init FAILED: ${it.message}", it) }
+                webRtcReady.complete(Unit)
+            }.onFailure {
+                Log.e(TAG, "WebRTC init FAILED: ${it.message}", it)
+                webRtcReady.completeExceptionally(it)
+            }
         }
         scope.launch { socketManager.callIncoming.collect { onCallIncoming(it) } }
         scope.launch { socketManager.callInitiated.collect { onCallInitiated(it) } }
@@ -208,6 +215,9 @@ class CallManager(
         _callInfo.value = _callInfo.value?.copy(callId = servCallId)
 
         scope.launch {
+            runCatching { webRtcReady.await() }.onFailure {
+                Log.e(TAG, "onCallInitiated: WebRTC init failed, aborting"); cleanupAndSetIdle("init_failed"); return@launch
+            }
             val token = tokenStore.getAccessToken() ?: run { Log.e(TAG, "onCallInitiated: no token"); return@launch }
             val iceServers = runCatching { apiService.getTurnCredentials("Bearer $token").iceServers }
                 .onSuccess { Log.d(TAG, "TURN: got ${it.size} ICE servers") }
@@ -268,6 +278,9 @@ class CallManager(
         ringTimeoutJob?.cancel()
 
         scope.launch {
+            runCatching { webRtcReady.await() }.onFailure {
+                Log.e(TAG, "acceptCall: WebRTC init failed, aborting"); cleanupAndSetIdle("init_failed"); return@launch
+            }
             val token = tokenStore.getAccessToken() ?: return@launch
             val iceServers = runCatching { apiService.getTurnCredentials("Bearer $token").iceServers }.getOrNull()
             createPeerConnection(iceServers?.map { toRtcIceServer(it) } ?: defaultIceServers())
