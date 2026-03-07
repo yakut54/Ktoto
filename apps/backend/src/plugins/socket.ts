@@ -515,10 +515,21 @@ export const socketPlugin = fp(async (app: FastifyInstance) => {
     registerCallHandlers(app, socket, userId)
 
     // ── Sync call state after reconnect ─────────────────────────────────
-    // Automatically check if this user has an active call
-    const activeCall = await getActiveCallForUser(app.redis, userId)
-    if (activeCall) {
-      socket.emit('call_state_confirmed', { call: activeCall })
+    // Auto-clean stale ringing sessions left by crashed caller (no point keeping
+    // a ringing session where the caller just (re)connected — they clearly crashed)
+    const maybeStaleCall = await getActiveCallForUser(app.redis, userId)
+    if (maybeStaleCall) {
+      if (maybeStaleCall.state === 'ringing' && maybeStaleCall.callerId === userId) {
+        app.log.info({ callId: maybeStaleCall.id, userId }, 'Auto-cleaning stale ringing call on reconnect')
+        await endCall(app.redis, maybeStaleCall.id, 'caller_reconnected')
+        // Notify callee that call was cancelled (in case they got the incoming event)
+        app.io.to(`user:${maybeStaleCall.calleeId}`).emit('call_cancelled', {
+          callId: maybeStaleCall.id,
+          reason: 'caller_reconnected',
+        })
+      } else {
+        socket.emit('call_state_confirmed', { call: maybeStaleCall })
+      }
     }
 
     socket.on('disconnect', async (reason) => {

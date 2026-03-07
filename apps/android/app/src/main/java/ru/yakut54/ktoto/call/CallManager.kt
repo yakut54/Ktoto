@@ -148,7 +148,17 @@ class CallManager(
     // ─────────────────────────────────────────────────────────────────────────
 
     fun init() {
-        eglBase = EglBase.create()
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                PeerConnectionFactory.initialize(
+                    PeerConnectionFactory.InitializationOptions.builder(context)
+                        .setEnableInternalTracer(false)
+                        .createInitializationOptions()
+                )
+                eglBase = EglBase.create()
+                Log.i(TAG, "WebRTC initialized OK")
+            }.onFailure { Log.e(TAG, "WebRTC init FAILED: ${it.message}", it) }
+        }
         scope.launch { socketManager.callIncoming.collect { onCallIncoming(it) } }
         scope.launch { socketManager.callInitiated.collect { onCallInitiated(it) } }
         scope.launch { socketManager.callRinging.collect { onCallRinging() } }
