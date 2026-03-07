@@ -144,6 +144,10 @@ jobs:
             sed -i '/^MINIO_PUBLIC_ENDPOINT=/d' .env.prod
             echo "MINIO_PUBLIC_ENDPOINT=http://31.128.39.216:9000" >> .env.prod
 
+            # Ensure TURN config is set
+            grep -q '^TURN_SECRET=' .env.prod || echo "TURN_SECRET=ktoto-turn-secret-2026-xK9pQ" >> .env.prod
+            grep -q '^TURN_HOST=' .env.prod || echo "TURN_HOST=31.128.39.216" >> .env.prod
+
             # Логинимся в GHCR
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u yakut54 --password-stdin || true
 
