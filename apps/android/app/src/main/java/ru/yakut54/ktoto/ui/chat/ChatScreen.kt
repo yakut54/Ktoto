@@ -111,6 +111,8 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
@@ -719,6 +721,13 @@ fun ChatScreen(
                 val haptic = LocalHapticFeedback.current
                 val thresholdPx = with(LocalDensity.current) { 72.dp.toPx() }
                 val isBulkSelected = msg.id in selectedIds
+                val interactionSource = remember { MutableInteractionSource() }
+                val isPressed by interactionSource.collectIsPressedAsState()
+                val pressScale by animateFloatAsState(
+                    targetValue = if (isPressed) 0.965f else 1f,
+                    animationSpec = spring(stiffness = Spring.StiffnessHigh),
+                    label = "pressScale",
+                )
 
                 Box(
                     modifier = Modifier
@@ -728,6 +737,8 @@ fun ChatScreen(
                             else Modifier
                         )
                         .combinedClickable(
+                            interactionSource = interactionSource,
+                            indication = null,
                             onClick = {
                                 if (selectionMode) {
                                     selectedIds = if (msg.id in selectedIds) selectedIds - msg.id else selectedIds + msg.id
@@ -735,6 +746,7 @@ fun ChatScreen(
                                 }
                             },
                             onLongClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 if (selectionMode) {
                                     selectedIds = if (msg.id in selectedIds) selectedIds - msg.id else selectedIds + msg.id
                                     if (selectedIds.isEmpty()) selectionMode = false
@@ -783,6 +795,7 @@ fun ChatScreen(
                     Box(
                         modifier = Modifier
                             .offset { IntOffset(swipeVal.toInt(), 0) }
+                            .graphicsLayer { scaleX = pressScale; scaleY = pressScale }
                             .then(
                                 if (!selectionMode) Modifier.pointerInput(msg.id) {
                                     var actionTriggered = false
