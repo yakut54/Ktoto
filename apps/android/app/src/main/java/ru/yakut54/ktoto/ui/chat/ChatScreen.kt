@@ -109,9 +109,15 @@ import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.ui.geometry.Offset
@@ -708,7 +714,12 @@ fun ChatScreen(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             items(messages, key = { it.id }) { msg ->
+                val swipeOffset = remember { Animatable(0f) }
+                val swipeScope = rememberCoroutineScope()
+                val haptic = LocalHapticFeedback.current
+                val thresholdPx = with(LocalDensity.current) { 72.dp.toPx() }
                 val isBulkSelected = msg.id in selectedIds
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -733,31 +744,114 @@ fun ChatScreen(
                             },
                         ),
                 ) {
-                    if (selectionMode) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
+                    val swipeVal = swipeOffset.value
+
+                    // ── Reply indicator (swipe right) ──────────────────────────
+                    if (swipeVal > 8f) {
+                        val progress = (swipeVal / thresholdPx).coerceIn(0f, 1f)
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .padding(start = 12.dp)
+                                .size(36.dp)
+                                .graphicsLayer { scaleX = progress; scaleY = progress; alpha = progress }
+                                .background(MaterialTheme.colorScheme.primary, CircleShape),
+                            contentAlignment = Alignment.Center,
                         ) {
-                            TelegramCheckbox(
-                                checked = isBulkSelected,
-                                modifier = Modifier.padding(start = 8.dp),
-                            )
+                            Icon(Icons.AutoMirrored.Filled.Reply, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                        }
+                    }
+
+                    // ── Forward indicator (swipe left) ──────────────────────────
+                    if (swipeVal < -8f) {
+                        val progress = (-swipeVal / thresholdPx).coerceIn(0f, 1f)
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .padding(end = 12.dp)
+                                .size(36.dp)
+                                .graphicsLayer { scaleX = progress; scaleY = progress; alpha = progress }
+                                .background(MaterialTheme.colorScheme.secondary, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Reply, null, tint = Color.White,
+                                modifier = Modifier.size(18.dp).graphicsLayer { scaleX = -1f })
+                        }
+                    }
+
+                    // ── Sliding message content ────────────────────────────────
+                    Box(
+                        modifier = Modifier
+                            .offset { IntOffset(swipeVal.toInt(), 0) }
+                            .then(
+                                if (!selectionMode) Modifier.pointerInput(msg.id) {
+                                    var actionTriggered = false
+                                    detectHorizontalDragGestures(
+                                        onDragStart = { actionTriggered = false },
+                                        onHorizontalDrag = { change, dragAmount ->
+                                            change.consume()
+                                            val newOffset = (swipeOffset.value + dragAmount)
+                                                .coerceIn(-thresholdPx * 1.4f, thresholdPx * 1.4f)
+                                            swipeScope.launch { swipeOffset.snapTo(newOffset) }
+                                            if (!actionTriggered) {
+                                                when {
+                                                    newOffset >= thresholdPx -> {
+                                                        actionTriggered = true
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        vm.setReplyTo(msg)
+                                                    }
+                                                    newOffset <= -thresholdPx -> {
+                                                        actionTriggered = true
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        showForwardPicker = msg
+                                                        vm.loadConversationsForPicker()
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        onDragEnd = {
+                                            swipeScope.launch {
+                                                swipeOffset.animateTo(
+                                                    0f,
+                                                    spring(
+                                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                        stiffness = Spring.StiffnessMedium,
+                                                    ),
+                                                )
+                                            }
+                                        },
+                                        onDragCancel = {
+                                            swipeScope.launch { swipeOffset.animateTo(0f, spring()) }
+                                        },
+                                    )
+                                }
+                                else Modifier
+                            ),
+                    ) {
+                        if (selectionMode) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                TelegramCheckbox(
+                                    checked = isBulkSelected,
+                                    modifier = Modifier.padding(start = 8.dp),
+                                )
+                                MessageBubble(
+                                    message = msg,
+                                    isMine = msg.sender.id == currentUserId,
+                                    allMessages = messages,
+                                    onLongClick = {},
+                                )
+                            }
+                        } else {
                             MessageBubble(
                                 message = msg,
                                 isMine = msg.sender.id == currentUserId,
                                 allMessages = messages,
-                                onLongClick = {},
+                                onLongClick = { showMessageActions = msg },
                             )
                         }
-                    } else {
-                        MessageBubble(
-                            message = msg,
-                            isMine = msg.sender.id == currentUserId,
-                            allMessages = messages,
-                            onLongClick = { showMessageActions = msg },
-                            onForward = { showForwardPicker = msg; vm.loadConversationsForPicker() },
-                            onReply = { vm.setReplyTo(msg) },
-                        )
                     }
                 }
             }
@@ -1342,8 +1436,6 @@ private fun MessageBubble(
     isMine: Boolean,
     allMessages: List<Message> = emptyList(),
     onLongClick: () -> Unit = {},
-    onForward: (() -> Unit)? = null,
-    onReply: (() -> Unit)? = null,
 ) {
     val bubbleColor = if (isMine) MaterialTheme.colorScheme.primary
                       else MaterialTheme.colorScheme.surfaceVariant
@@ -1378,9 +1470,6 @@ private fun MessageBubble(
         horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (isMine) {
-            BubbleQuickActions(onForward = onForward, onReply = onReply)
-        }
         Column(
             modifier = Modifier
                 .widthIn(max = maxBubbleWidth)
@@ -1468,9 +1557,6 @@ private fun MessageBubble(
                     }
                 }
             }
-        }
-        if (!isMine) {
-            BubbleQuickActions(onForward = onForward, onReply = onReply)
         }
     }
 }
@@ -1821,32 +1907,6 @@ private fun formatFileSize(bytes: Long): String = when {
     else -> "%.1f МБ".format(bytes / (1024.0 * 1024.0))
 }
 
-@Composable
-private fun BubbleQuickActions(onForward: (() -> Unit)?, onReply: (() -> Unit)? = null) {
-    if (onForward == null && onReply == null) return
-    Row {
-        if (onReply != null) {
-            IconButton(onClick = onReply, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Reply,
-                    contentDescription = "Ответить",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-        }
-        if (onForward != null) {
-            IconButton(onClick = onForward, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Reply,
-                    contentDescription = "Переслать",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                    modifier = Modifier.size(18.dp).graphicsLayer { scaleX = -1f },
-                )
-            }
-        }
-    }
-}
 
 @Composable
 private fun TelegramCheckbox(
