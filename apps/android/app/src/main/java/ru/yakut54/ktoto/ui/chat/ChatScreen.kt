@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -165,6 +166,8 @@ fun ChatScreen(
     }
 
     val listState = rememberLazyListState()
+    val chatScope = rememberCoroutineScope()
+    var highlightedMessageId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
     }
@@ -721,6 +724,11 @@ fun ChatScreen(
                 val haptic = LocalHapticFeedback.current
                 val thresholdPx = with(LocalDensity.current) { 72.dp.toPx() }
                 val isBulkSelected = msg.id in selectedIds
+                val isHighlighted = msg.id == highlightedMessageId
+                val highlightBg by animateColorAsState(
+                    targetValue = if (isHighlighted) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent,
+                    label = "highlight",
+                )
                 val interactionSource = remember { MutableInteractionSource() }
                 val isPressed by interactionSource.collectIsPressedAsState()
                 val pressScale by animateFloatAsState(
@@ -732,9 +740,9 @@ fun ChatScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .then(
-                            if (isBulkSelected) Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                            else Modifier
+                        .background(
+                            if (isBulkSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                            else highlightBg
                         )
                         .combinedClickable(
                             interactionSource = interactionSource,
@@ -863,6 +871,17 @@ fun ChatScreen(
                                 isMine = msg.sender.id == currentUserId,
                                 allMessages = messages,
                                 onLongClick = { showMessageActions = msg },
+                                onQuoteTap = { replyId ->
+                                    chatScope.launch {
+                                        val idx = messages.indexOfFirst { it.id == replyId }
+                                        if (idx >= 0) {
+                                            listState.animateScrollToItem(idx)
+                                            highlightedMessageId = replyId
+                                            delay(1500)
+                                            highlightedMessageId = null
+                                        }
+                                    }
+                                },
                             )
                         }
                     }
@@ -1449,6 +1468,7 @@ private fun MessageBubble(
     isMine: Boolean,
     allMessages: List<Message> = emptyList(),
     onLongClick: () -> Unit = {},
+    onQuoteTap: ((String) -> Unit)? = null,
 ) {
     val bubbleColor = if (isMine) MaterialTheme.colorScheme.primary
                       else MaterialTheme.colorScheme.surfaceVariant
@@ -1507,12 +1527,18 @@ private fun MessageBubble(
                     "file" -> "📎 Файл"
                     else -> replyContent ?: ""
                 }
+                val quoteTapId = replyPreview?.id ?: replyFromHistory?.id ?: message.replyToId
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(
                             textColor.copy(alpha = 0.15f),
                             RoundedCornerShape(6.dp),
+                        )
+                        .then(
+                            if (onQuoteTap != null && quoteTapId != null)
+                                Modifier.clickable { onQuoteTap(quoteTapId) }
+                            else Modifier
                         )
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                         .padding(bottom = 4.dp),
@@ -1681,9 +1707,17 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
     var seekValue by remember { mutableFloatStateOf(0f) }
     var loadError by remember { mutableStateOf(false) }
     val player = remember { mutableStateOf<MediaPlayer?>(null) }
+    var playbackSpeed by remember { mutableStateOf(1f) }
 
     DisposableEffect(Unit) {
         onDispose { player.value?.release(); player.value = null }
+    }
+
+    LaunchedEffect(playbackSpeed) {
+        val mp = player.value ?: return@LaunchedEffect
+        if (isPlaying) {
+            try { mp.playbackParams = mp.playbackParams.setSpeed(playbackSpeed) } catch (_: Exception) {}
+        }
     }
 
     LaunchedEffect(isPlaying) {
@@ -1742,7 +1776,9 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
                     }
                     setOnPreparedListener {
                         android.util.Log.d(TAG, "MediaPlayer prepared, starting playback duration=${it.duration}ms")
-                        isPreparing = false; start(); isPlaying = true
+                        isPreparing = false
+                        try { if (playbackSpeed != 1f) playbackParams = playbackParams.setSpeed(playbackSpeed) } catch (_: Exception) {}
+                        start(); isPlaying = true
                     }
                     setOnCompletionListener { android.util.Log.d(TAG, "Playback completed"); isPlaying = false; progress = 0f }
                     prepareAsync()
@@ -1820,13 +1856,29 @@ private fun VoiceBubble(message: Message, isMine: Boolean, textColor: Color) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = if (loadError) "Ошибка загрузки"
-                       else att?.duration?.let { formatDuration(it.toInt()) } ?: "—",
-                fontSize = 10.sp,
-                color = if (loadError) MaterialTheme.colorScheme.error else textColor.copy(alpha = 0.7f),
-                modifier = Modifier.padding(start = 4.dp),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = if (loadError) "Ошибка загрузки"
+                           else att?.duration?.let { formatDuration(it.toInt()) } ?: "—",
+                    fontSize = 10.sp,
+                    color = if (loadError) MaterialTheme.colorScheme.error else textColor.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+                if (player.value != null || isPlaying || isPreparing) {
+                    val speedLabel = when (playbackSpeed) { 1f -> "1×"; 1.5f -> "1.5×"; else -> "2×" }
+                    val nextSpeed = when (playbackSpeed) { 1f -> 1.5f; 1.5f -> 2f; else -> 1f }
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = speedLabel,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = textColor.copy(alpha = 0.85f),
+                        modifier = Modifier
+                            .clickable { playbackSpeed = nextSpeed }
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                    )
+                }
+            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
