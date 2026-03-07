@@ -38,7 +38,7 @@ class PushService : Service() {
 
     private val tokenStore: TokenStore by inject()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var msgNotifId = 1000
+    private var msgNotifId = 1000 // fallback for notifications without conversationId
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -94,7 +94,13 @@ class PushService : Service() {
             if (data.contains("\"event\":\"message\"")) {
                 val title = data.extractJson("title") ?: "Ktoto"
                 val message = data.extractJson("message") ?: return
-                showMessageNotification(title, message)
+                val click = data.extractJson("click")
+                // Extract conversationId from "ktoto://chat/{UUID}"
+                val conversationId = click
+                    ?.takeIf { it.startsWith("ktoto://chat/") }
+                    ?.removePrefix("ktoto://chat/")
+                    ?.trim()
+                showMessageNotification(title, message, conversationId)
             }
         } catch (_: Exception) {}
     }
@@ -104,14 +110,19 @@ class PushService : Service() {
         return pattern.find(this)?.groupValues?.get(1)
     }
 
-    private fun showMessageNotification(title: String, body: String) {
+    private fun showMessageNotification(title: String, body: String, conversationId: String?) {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+            if (conversationId != null) putExtra("conversationId", conversationId)
         }
-        val pi = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+        val notifId = conversationId?.hashCode() ?: msgNotifId++
+        val pi = PendingIntent.getActivity(
+            this, notifId, intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
 
         val notif = NotificationCompat.Builder(this, CHANNEL_MESSAGES)
-            .setSmallIcon(android.R.drawable.ic_dialog_email)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
             .setContentText(body)
             .setAutoCancel(true)
@@ -120,7 +131,7 @@ class PushService : Service() {
             .build()
 
         val nm = getSystemService(NotificationManager::class.java)
-        nm.notify(msgNotifId++, notif)
+        nm.notify(notifId, notif)
     }
 
     private fun buildServiceNotification(): Notification {

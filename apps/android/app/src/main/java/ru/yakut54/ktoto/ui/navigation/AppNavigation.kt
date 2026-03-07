@@ -15,8 +15,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import org.koin.compose.koinInject
+import ru.yakut54.ktoto.data.api.ApiService
 import ru.yakut54.ktoto.data.socket.SocketManager
 import ru.yakut54.ktoto.data.store.TokenStore
 import ru.yakut54.ktoto.ui.auth.AuthScreen
@@ -35,11 +38,13 @@ object Routes {
 }
 
 @Composable
-fun AppNavigation() {
+fun AppNavigation(pendingConversationId: StateFlow<String?> = MutableStateFlow(null)) {
     val tokenStore: TokenStore = koinInject()
     val socketManager: SocketManager = koinInject()
+    val apiService: ApiService = koinInject()
     val token by tokenStore.accessToken.collectAsState(initial = null)
     val currentUserId by tokenStore.userId.collectAsState(initial = "")
+    val pendingConvId by pendingConversationId.collectAsState()
 
     val navController = rememberNavController()
     val currentRoute by navController.currentBackStackEntryAsState()
@@ -63,6 +68,23 @@ fun AppNavigation() {
                 popUpTo(0) { inclusive = true }
             }
         }
+    }
+
+    // Deep-link from push notification → navigate to specific conversation
+    LaunchedEffect(pendingConvId) {
+        val convId = pendingConvId ?: return@LaunchedEffect
+        val currentToken = tokenStore.accessToken.first() ?: return@LaunchedEffect
+        val userId = tokenStore.userId.first()
+        (pendingConversationId as? MutableStateFlow)?.value = null
+        try {
+            val convs = apiService.getConversations("Bearer $currentToken")
+            val conv = convs.find { it.id == convId }
+            val convName = conv?.name ?: "Чат"
+            token?.let { socketManager.connect(it) }
+            navController.navigate(Routes.chat(convId, convName, userId)) {
+                launchSingleTop = true
+            }
+        } catch (_: Exception) {}
     }
 
     NavHost(

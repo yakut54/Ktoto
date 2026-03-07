@@ -36,6 +36,13 @@ data class LastMessage(
     val userId: String?,
 )
 
+data class ReplyPreview(
+    val id: String,
+    val content: String?,
+    val type: String?,
+    val sender: Sender,
+)
+
 data class Attachment(
     val fileName: String,
     val fileSize: Long?,
@@ -54,6 +61,7 @@ data class Message(
     val createdAt: String,
     val editedAt: String?,
     val replyToId: String?,
+    val replyTo: ReplyPreview? = null,
     val sender: Sender,
     val conversationId: String,
     val attachment: Attachment? = null,

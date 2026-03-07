@@ -303,6 +303,8 @@ class ChatViewModel(
     }
 
     fun sendMediaMessage(context: Context, uri: Uri, type: String) {
+        val replyId = _replyTo.value?.id
+        _replyTo.value = null
         viewModelScope.launch {
             _sending.value = true
             _uploadProgress.value = 0f
@@ -316,7 +318,9 @@ class ChatViewModel(
                 val filePart = MultipartBody.Part.createFormData(
                     "file", fileName, bytes.toRequestBody(mimeType.toMediaType())
                 )
-                val metaPart = Gson().toJson(mapOf("type" to type))
+                val metaMap = mutableMapOf<String, Any>("type" to type)
+                if (replyId != null) metaMap["reply_to_id"] = replyId
+                val metaPart = Gson().toJson(metaMap)
                     .toRequestBody("text/plain".toMediaType())
                 _uploadProgress.value = 0.5f
                 val msg = api.uploadMessage("Bearer $token", conversationId, filePart, metaPart)

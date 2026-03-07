@@ -149,7 +149,12 @@ fun ChatScreen(
     val density = LocalDensity.current
     val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
 
-    LaunchedEffect(conversationId) { vm.init(conversationId) }
+    LaunchedEffect(conversationId) {
+        vm.init(conversationId)
+        // Cancel any push notification for this conversation
+        val nm = context.getSystemService(android.app.NotificationManager::class.java)
+        nm.cancel(conversationId.hashCode())
+    }
 
     val listState = rememberLazyListState()
     LaunchedEffect(messages.size) {
@@ -170,6 +175,7 @@ fun ChatScreen(
     var recordingCancelHint by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf<ru.yakut54.ktoto.data.model.Message?>(null) }
     var showForwardPicker by remember { mutableStateOf<ru.yakut54.ktoto.data.model.Message?>(null) }
+    var showMessageActions by remember { mutableStateOf<ru.yakut54.ktoto.data.model.Message?>(null) }
 
     // ── Multi-select state ─────────────────────────────────────────────────────
     var selectionMode by remember { mutableStateOf(false) }
@@ -722,8 +728,7 @@ fun ChatScreen(
                                     selectedIds = if (msg.id in selectedIds) selectedIds - msg.id else selectedIds + msg.id
                                     if (selectedIds.isEmpty()) selectionMode = false
                                 } else {
-                                    selectionMode = true
-                                    selectedIds = setOf(msg.id)
+                                    showMessageActions = msg
                                 }
                             },
                         ),
@@ -749,8 +754,9 @@ fun ChatScreen(
                             message = msg,
                             isMine = msg.sender.id == currentUserId,
                             allMessages = messages,
-                            onLongClick = { selectionMode = true; selectedIds = setOf(msg.id) },
+                            onLongClick = { showMessageActions = msg },
                             onForward = { showForwardPicker = msg; vm.loadConversationsForPicker() },
+                            onReply = { vm.setReplyTo(msg) },
                         )
                     }
                 }
@@ -979,6 +985,94 @@ fun ChatScreen(
                         onClick = { showMultiDeleteConfirm = false },
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                     ) { Text("Отмена") }
+                }
+            }
+        }
+    }
+
+    // ── Message actions bottom sheet ───────────────────────────────────────────
+    if (showMessageActions != null) {
+        val msg = showMessageActions!!
+        val sheetState = rememberModalBottomSheetState()
+        ModalBottomSheet(
+            onDismissRequest = { showMessageActions = null },
+            sheetState = sheetState,
+            dragHandle = { BottomSheetDefaults.DragHandle() },
+        ) {
+            Column(modifier = Modifier.padding(bottom = 32.dp)) {
+                // Reply
+                TextButton(
+                    onClick = { vm.setReplyTo(msg); showMessageActions = null },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.AutoMirrored.Filled.Reply, null, Modifier.size(20.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Text("Ответить", style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+                // Edit (own text messages only)
+                if (msg.sender.id == currentUserId && msg.type == "text") {
+                    TextButton(
+                        onClick = { vm.startEditing(msg); showMessageActions = null },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    ) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Edit, null, Modifier.size(20.dp))
+                            Spacer(Modifier.width(16.dp))
+                            Text("Редактировать", style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+                }
+                // Copy (text messages with content)
+                if (!msg.content.isNullOrBlank()) {
+                    TextButton(
+                        onClick = {
+                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("message", msg.content))
+                            showMessageActions = null
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    ) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.ContentCopy, null, Modifier.size(20.dp))
+                            Spacer(Modifier.width(16.dp))
+                            Text("Копировать", style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+                }
+                // Forward
+                TextButton(
+                    onClick = { showForwardPicker = msg; vm.loadConversationsForPicker(); showMessageActions = null },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.AutoMirrored.Filled.Reply, null, Modifier.size(20.dp).graphicsLayer { scaleX = -1f })
+                        Spacer(Modifier.width(16.dp))
+                        Text("Переслать", style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+                // Select
+                TextButton(
+                    onClick = { selectionMode = true; selectedIds = setOf(msg.id); showMessageActions = null },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Done, null, Modifier.size(20.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Text("Выбрать", style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                // Delete
+                TextButton(
+                    onClick = { showDeleteConfirm = msg; showMessageActions = null },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Delete, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(16.dp))
+                        Text("Удалить", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
         }
@@ -1249,13 +1343,21 @@ private fun MessageBubble(
     allMessages: List<Message> = emptyList(),
     onLongClick: () -> Unit = {},
     onForward: (() -> Unit)? = null,
+    onReply: (() -> Unit)? = null,
 ) {
     val bubbleColor = if (isMine) MaterialTheme.colorScheme.primary
                       else MaterialTheme.colorScheme.surfaceVariant
     val textColor = if (isMine) MaterialTheme.colorScheme.onPrimary
                     else MaterialTheme.colorScheme.onSurfaceVariant
 
-    val replyOrigin = if (message.replyToId != null) allMessages.find { it.id == message.replyToId } else null
+    // Use server-provided preview first; fall back to local history lookup for real-time messages
+    val replyPreview = message.replyTo
+    val replyFromHistory = if (replyPreview == null && message.replyToId != null)
+        allMessages.find { it.id == message.replyToId } else null
+    val hasReply = replyPreview != null || replyFromHistory != null
+    val replyUsername = replyPreview?.sender?.username ?: replyFromHistory?.sender?.username ?: ""
+    val replyType = replyPreview?.type ?: replyFromHistory?.type ?: "text"
+    val replyContent = replyPreview?.content ?: replyFromHistory?.content
 
     val effectiveType = when {
         message.type == "image" || message.attachment?.mimeType?.startsWith("image/") == true -> "image"
@@ -1277,7 +1379,7 @@ private fun MessageBubble(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (isMine) {
-            BubbleQuickActions(onForward = onForward)
+            BubbleQuickActions(onForward = onForward, onReply = onReply)
         }
         Column(
             modifier = Modifier
@@ -1296,12 +1398,12 @@ private fun MessageBubble(
                 ),
         ) {
             // ── Reply quote block ──────────────────────────────────────
-            if (replyOrigin != null) {
-                val quotePreview = when (replyOrigin.type) {
+            if (hasReply) {
+                val quotePreview = when (replyType) {
                     "image" -> "📷 Фото"
                     "voice" -> "🎤 Голосовое"
                     "file" -> "📎 Файл"
-                    else -> replyOrigin.content ?: ""
+                    else -> replyContent ?: ""
                 }
                 Column(
                     modifier = Modifier
@@ -1314,7 +1416,7 @@ private fun MessageBubble(
                         .padding(bottom = 4.dp),
                 ) {
                     Text(
-                        text = replyOrigin.sender.username,
+                        text = replyUsername,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.primary,
@@ -1368,7 +1470,7 @@ private fun MessageBubble(
             }
         }
         if (!isMine) {
-            BubbleQuickActions(onForward = onForward)
+            BubbleQuickActions(onForward = onForward, onReply = onReply)
         }
     }
 }
@@ -1720,15 +1822,29 @@ private fun formatFileSize(bytes: Long): String = when {
 }
 
 @Composable
-private fun BubbleQuickActions(onForward: (() -> Unit)?) {
-    if (onForward == null) return
-    IconButton(onClick = onForward, modifier = Modifier.size(32.dp)) {
-        Icon(
-            Icons.AutoMirrored.Filled.Reply,
-            contentDescription = "Переслать",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-            modifier = Modifier.size(18.dp).graphicsLayer { scaleX = -1f },
-        )
+private fun BubbleQuickActions(onForward: (() -> Unit)?, onReply: (() -> Unit)? = null) {
+    if (onForward == null && onReply == null) return
+    Row {
+        if (onReply != null) {
+            IconButton(onClick = onReply, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Reply,
+                    contentDescription = "Ответить",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+        if (onForward != null) {
+            IconButton(onClick = onForward, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Reply,
+                    contentDescription = "Переслать",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                    modifier = Modifier.size(18.dp).graphicsLayer { scaleX = -1f },
+                )
+            }
+        }
     }
 }
 
