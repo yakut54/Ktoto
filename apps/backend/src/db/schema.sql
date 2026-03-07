@@ -103,6 +103,19 @@ CREATE TABLE IF NOT EXISTS file_attachments (
 CREATE INDEX IF NOT EXISTS idx_attachments_message ON file_attachments(message_id);
 
 -- ============================================================
+-- BLOCKED USERS
+-- ============================================================
+CREATE TABLE IF NOT EXISTS blocked_users (
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  blocker_id  UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  blocked_id  UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(blocker_id, blocked_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_blocked_blocker ON blocked_users(blocker_id);
+
+-- ============================================================
 -- AUTO updated_at TRIGGER
 -- ============================================================
 CREATE OR REPLACE FUNCTION update_updated_at()

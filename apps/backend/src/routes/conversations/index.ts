@@ -95,6 +95,12 @@ export async function conversationRoutes(app: FastifyInstance) {
          WHERE cp2.conversation_id = c.id AND cp2.user_id != $1
          LIMIT 1
        ) other ON c.type = 'direct'
+       WHERE NOT EXISTS (
+         SELECT 1 FROM blocked_users b
+         WHERE (b.blocker_id = $1 AND b.blocked_id IN (
+           SELECT user_id FROM conversation_participants WHERE conversation_id = c.id AND user_id != $1
+         ))
+       )
        ORDER BY COALESCE(lm.created_at, c.updated_at) DESC`,
       [userId],
     )
@@ -694,6 +700,59 @@ export async function conversationRoutes(app: FastifyInstance) {
       return payload
     },
   )
+
+  // ----------------------------------------------------------------
+  // DELETE /api/conversations/:id  — leave conversation (remove self from participants)
+  // ----------------------------------------------------------------
+  app.delete<{ Params: MessageParams }>('/:id', async (request, reply) => {
+    const { userId } = request.user
+    const { id: convId } = request.params
+
+    const access = await app.pg.query(
+      `SELECT 1 FROM conversation_participants WHERE conversation_id=$1 AND user_id=$2`,
+      [convId, userId],
+    )
+    if (!access.rows[0]) return reply.status(403).send({ error: 'Forbidden' })
+
+    await app.pg.query(
+      `DELETE FROM conversation_participants WHERE conversation_id=$1 AND user_id=$2`,
+      [convId, userId],
+    )
+
+    reply.status(204)
+  })
+
+  // ----------------------------------------------------------------
+  // POST /api/conversations/:id/block  — block the other participant + leave
+  // ----------------------------------------------------------------
+  app.post<{ Params: MessageParams }>('/:id/block', async (request, reply) => {
+    const { userId } = request.user
+    const { id: convId } = request.params
+
+    // Find the other participant in this conversation
+    const other = await app.pg.query<{ user_id: string }>(
+      `SELECT user_id FROM conversation_participants
+       WHERE conversation_id=$1 AND user_id != $2 LIMIT 1`,
+      [convId, userId],
+    )
+    if (!other.rows[0]) return reply.status(404).send({ error: 'Conversation not found' })
+
+    const blockedId = other.rows[0].user_id
+
+    // Insert block (ignore if already blocked)
+    await app.pg.query(
+      `INSERT INTO blocked_users (blocker_id, blocked_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [userId, blockedId],
+    )
+
+    // Leave the conversation
+    await app.pg.query(
+      `DELETE FROM conversation_participants WHERE conversation_id=$1 AND user_id=$2`,
+      [convId, userId],
+    )
+
+    reply.status(204)
+  })
 
   // ----------------------------------------------------------------
   // DELETE /api/conversations/:id/messages/:msgId  — soft-delete
