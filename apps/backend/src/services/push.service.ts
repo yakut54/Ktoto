@@ -4,16 +4,20 @@ const NTFY_PASS = process.env.NTFY_PASS || 'ntfy-backend-2026'
 
 const auth = Buffer.from(`${NTFY_USER}:${NTFY_PASS}`).toString('base64')
 
-export async function pushToUser(userId: string, title: string, message: string) {
+export async function pushToUser(userId: string, title: string, message: string, conversationId?: string) {
   try {
+    const headers: Record<string, string> = {
+      Authorization: `Basic ${auth}`,
+      Title: title,
+      Priority: 'default',
+      'Content-Type': 'text/plain',
+    }
+    if (conversationId) {
+      headers['Click'] = `ktoto://chat/${conversationId}`
+    }
     await fetch(`${NTFY_URL}/ktoto-${userId}`, {
       method: 'POST',
-      headers: {
-        Authorization: `Basic ${auth}`,
-        Title: title,
-        Priority: 'default',
-        'Content-Type': 'text/plain',
-      },
+      headers,
       body: message,
     })
   } catch {

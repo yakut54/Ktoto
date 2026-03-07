@@ -232,6 +232,10 @@ export async function conversationRoutes(app: FastifyInstance) {
         att_duration: string | null
         att_width: number | null
         att_height: number | null
+        rt_content: string | null
+        rt_type: string | null
+        rt_user_id: string | null
+        rt_username: string | null
       }>(
         `SELECT
            m.id, m.content, m.type, m.created_at, m.edited_at, m.reply_to_id,
@@ -241,10 +245,14 @@ export async function conversationRoutes(app: FastifyInstance) {
            fa.file_type AS att_file_type, fa.s3_key AS att_s3_key,
            fa.thumbnail_s3_key AS att_thumb_key,
            fa.duration_seconds AS att_duration,
-           fa.image_width AS att_width, fa.image_height AS att_height
+           fa.image_width AS att_width, fa.image_height AS att_height,
+           rm.content AS rt_content, rm.type AS rt_type,
+           ru.id AS rt_user_id, ru.username AS rt_username
          FROM messages m
          JOIN users u ON u.id = m.user_id
          LEFT JOIN file_attachments fa ON fa.message_id = m.id
+         LEFT JOIN messages rm ON rm.id = m.reply_to_id
+         LEFT JOIN users ru ON ru.id = rm.user_id
          WHERE m.conversation_id = $1
            AND m.deleted_at IS NULL
            AND ($3::uuid IS NULL OR m.created_at < (
@@ -301,6 +309,12 @@ export async function conversationRoutes(app: FastifyInstance) {
             createdAt: r.created_at,
             editedAt: r.edited_at,
             replyToId: r.reply_to_id,
+            replyTo: r.reply_to_id && r.rt_user_id ? {
+              id: r.reply_to_id,
+              content: r.rt_content,
+              type: r.rt_type,
+              sender: { id: r.rt_user_id, username: r.rt_username },
+            } : null,
             sender: { id: r.user_id, username: r.username, avatarUrl: r.avatar_url },
             conversationId: convId,
             attachment,
@@ -471,7 +485,7 @@ export async function conversationRoutes(app: FastifyInstance) {
             const previewContent = msgType === 'image' ? '📷 Фото' :
                                    msgType === 'voice' ? '🎤 Голосовое' :
                                    msgType === 'video' ? '🎬 Видео' : '📎 Файл'
-            pushToUser(p.user_id, userRow.rows[0].username, previewContent)
+            pushToUser(p.user_id, userRow.rows[0].username, previewContent, convId)
           }
         }
 
@@ -595,7 +609,7 @@ export async function conversationRoutes(app: FastifyInstance) {
         for (const p of participants.rows) {
           app.io.to(`user:${p.user_id}`).emit('new_message', payload)
           if (p.user_id !== userId) {
-            pushToUser(p.user_id, userRow.rows[0].username, payload.content)
+            pushToUser(p.user_id, userRow.rows[0].username, payload.content, convId)
           }
         }
 
