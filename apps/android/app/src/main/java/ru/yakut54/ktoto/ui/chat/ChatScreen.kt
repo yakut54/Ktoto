@@ -66,6 +66,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -187,7 +188,6 @@ fun ChatScreen(
     var recordingCancelHint by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf<ru.yakut54.ktoto.data.model.Message?>(null) }
     var showForwardPicker by remember { mutableStateOf<ru.yakut54.ktoto.data.model.Message?>(null) }
-    var showMessageActions by remember { mutableStateOf<ru.yakut54.ktoto.data.model.Message?>(null) }
 
     // ── Multi-select state ─────────────────────────────────────────────────────
     var selectionMode by remember { mutableStateOf(false) }
@@ -348,7 +348,43 @@ fun ChatScreen(
         },
         bottomBar = {
             Surface(shadowElevation = 4.dp, tonalElevation = 2.dp) {
-                when (voiceState) {
+                if (selectionMode) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        if (selectedIds.size == 1) {
+                            OutlinedButton(
+                                onClick = {
+                                    messages.find { it.id in selectedIds }?.let { vm.setReplyTo(it) }
+                                    selectionMode = false; selectedIds = emptySet()
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(50),
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.Reply, null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Ответить")
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                showMultiForwardPicker = true
+                                vm.loadConversationsForPicker()
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(50),
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Reply, null,
+                                modifier = Modifier.size(18.dp).graphicsLayer { scaleX = -1f })
+                            Spacer(Modifier.width(8.dp))
+                            Text("Переслать")
+                        }
+                    }
+                } else when (voiceState) {
                     // ── LOCKED: recording without holding ───────────────────────────────
                     VoiceState.LOCKED -> LockedRecordingBar(
                         seconds = recordingSeconds,
@@ -756,12 +792,8 @@ fun ChatScreen(
                             },
                             onLongClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                if (selectionMode) {
-                                    selectedIds = if (msg.id in selectedIds) selectedIds - msg.id else selectedIds + msg.id
-                                    if (selectedIds.isEmpty()) selectionMode = false
-                                } else {
-                                    showMessageActions = msg
-                                }
+                                selectionMode = true
+                                selectedIds = selectedIds + msg.id
                             },
                         ),
                 ) {
@@ -871,7 +903,7 @@ fun ChatScreen(
                                 message = msg,
                                 isMine = msg.sender.id == currentUserId,
                                 allMessages = messages,
-                                onLongClick = { showMessageActions = msg },
+                                onLongClick = { selectionMode = true; selectedIds = selectedIds + msg.id },
                                 onQuoteTap = { replyId ->
                                     chatScope.launch {
                                         val idx = messages.indexOfFirst { it.id == replyId }
@@ -1112,94 +1144,6 @@ fun ChatScreen(
                         onClick = { showMultiDeleteConfirm = false },
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                     ) { Text("Отмена") }
-                }
-            }
-        }
-    }
-
-    // ── Message actions bottom sheet ───────────────────────────────────────────
-    if (showMessageActions != null) {
-        val msg = showMessageActions!!
-        val sheetState = rememberModalBottomSheetState()
-        ModalBottomSheet(
-            onDismissRequest = { showMessageActions = null },
-            sheetState = sheetState,
-            dragHandle = { BottomSheetDefaults.DragHandle() },
-        ) {
-            Column(modifier = Modifier.padding(bottom = 32.dp)) {
-                // Reply
-                TextButton(
-                    onClick = { vm.setReplyTo(msg); showMessageActions = null },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                ) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.AutoMirrored.Filled.Reply, null, Modifier.size(20.dp))
-                        Spacer(Modifier.width(16.dp))
-                        Text("Ответить", style = MaterialTheme.typography.bodyLarge)
-                    }
-                }
-                // Edit (own text messages only)
-                if (msg.sender.id == currentUserId && msg.type == "text") {
-                    TextButton(
-                        onClick = { vm.startEditing(msg); showMessageActions = null },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    ) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Edit, null, Modifier.size(20.dp))
-                            Spacer(Modifier.width(16.dp))
-                            Text("Редактировать", style = MaterialTheme.typography.bodyLarge)
-                        }
-                    }
-                }
-                // Copy (text messages with content)
-                if (!msg.content.isNullOrBlank()) {
-                    TextButton(
-                        onClick = {
-                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("message", msg.content))
-                            showMessageActions = null
-                        },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    ) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.ContentCopy, null, Modifier.size(20.dp))
-                            Spacer(Modifier.width(16.dp))
-                            Text("Копировать", style = MaterialTheme.typography.bodyLarge)
-                        }
-                    }
-                }
-                // Forward
-                TextButton(
-                    onClick = { showForwardPicker = msg; vm.loadConversationsForPicker(); showMessageActions = null },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                ) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.AutoMirrored.Filled.Reply, null, Modifier.size(20.dp).graphicsLayer { scaleX = -1f })
-                        Spacer(Modifier.width(16.dp))
-                        Text("Переслать", style = MaterialTheme.typography.bodyLarge)
-                    }
-                }
-                // Select
-                TextButton(
-                    onClick = { selectionMode = true; selectedIds = setOf(msg.id); showMessageActions = null },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                ) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Done, null, Modifier.size(20.dp))
-                        Spacer(Modifier.width(16.dp))
-                        Text("Выбрать", style = MaterialTheme.typography.bodyLarge)
-                    }
-                }
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                // Delete
-                TextButton(
-                    onClick = { showDeleteConfirm = msg; showMessageActions = null },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                ) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Delete, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
-                        Spacer(Modifier.width(16.dp))
-                        Text("Удалить", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
-                    }
                 }
             }
         }
