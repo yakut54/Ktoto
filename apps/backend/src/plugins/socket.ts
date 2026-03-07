@@ -143,17 +143,24 @@ function registerCallHandlers(
   socket.on(
     'call_initiate',
     async (data: { toUserId: string; callType: 'audio' | 'video' }) => {
+      app.log.info({ from: userId, data }, '>>> call_initiate received')
+
       if (!checkCallRateLimit(userId)) {
+        app.log.warn({ userId }, 'call_initiate rate limited')
         socket.emit('call_error', { reason: 'rate_limited', retryAfter: 60 })
         return
       }
 
       const { toUserId, callType } = data
-      if (!toUserId || !callType) return
+      if (!toUserId || !callType) {
+        app.log.warn({ data }, 'call_initiate missing toUserId or callType')
+        return
+      }
 
       // Check caller not already in a call
       const myCall = await getActiveCallForUser(redis, userId)
       if (myCall) {
+        app.log.warn({ userId, callId: myCall.id }, 'call_initiate: caller is busy')
         socket.emit('call_error', { reason: 'you_are_busy' })
         return
       }
@@ -161,9 +168,14 @@ function registerCallHandlers(
       // Check callee not already in a call
       const theirCall = await getActiveCallForUser(redis, toUserId)
       if (theirCall) {
+        app.log.warn({ toUserId, callId: theirCall.id }, 'call_initiate: callee is busy')
         socket.emit('call_busy', { toUserId })
         return
       }
+
+      // Check callee socket room
+      const calleeSockets = await app.io.in(`user:${toUserId}`).fetchSockets()
+      app.log.info({ toUserId, socketsOnline: calleeSockets.length }, 'call_initiate: callee socket check')
 
       // Symmetric race: if they're calling us simultaneously, lower userId wins
       // (handled by checking active call above — first one in wins)
@@ -200,12 +212,13 @@ function registerCallHandlers(
 
       // Confirm to caller
       socket.emit('call_initiated', { callId: call.id })
-      app.log.info({ callId: call.id, callerId: userId, calleeId: toUserId }, 'Call initiated')
+      app.log.info({ callId: call.id, callerId: userId, calleeId: toUserId, callType }, 'Call initiated → call_incoming sent to callee')
     },
   )
 
   // ── call_ringing (callee → caller) ───────────────────────────────────────
   socket.on('call_ringing', async (data: { callId: string }) => {
+    app.log.info({ callId: data.callId, from: userId }, '>>> call_ringing received')
     const call = await getCall(redis, data.callId)
     if (!call || call.calleeId !== userId) return
     app.io.to(`user:${call.callerId}`).emit('call_ringing', { callId: call.id })
@@ -215,16 +228,17 @@ function registerCallHandlers(
   socket.on(
     'call_offer',
     async (data: { callId: string; sdp: { type: string; sdp: string } }) => {
+      app.log.info({ callId: data.callId, from: userId }, '>>> call_offer received')
       const call = await getCall(redis, data.callId)
       if (!call || call.callerId !== userId) return
       if (call.state === 'ended') return
 
-      // Update state to negotiating
       if (call.state === 'ringing') {
         const updated = { ...call, state: 'negotiating' as CallState }
         await saveCall(redis, updated)
       }
 
+      app.log.info({ callId: call.id, toUserId: call.calleeId }, 'call_offer → forwarded to callee')
       app.io
         .to(`user:${call.calleeId}`)
         .emit('call_offer', { callId: call.id, sdp: data.sdp })
@@ -235,6 +249,7 @@ function registerCallHandlers(
   socket.on(
     'call_answer',
     async (data: { callId: string; sdp: { type: string; sdp: string } }) => {
+      app.log.info({ callId: data.callId, from: userId }, '>>> call_answer received')
       const call = await getCall(redis, data.callId)
       if (!call || call.calleeId !== userId) return
       if (call.state === 'ended') return
@@ -273,7 +288,7 @@ function registerCallHandlers(
           .emit('call_ice_candidate', { callId: call.id, candidate: item.candidate })
       }
 
-      app.log.info({ callId: call.id }, 'Call answered')
+      app.log.info({ callId: call.id, bufferedCandidates: buffered.length }, 'Call answered → state=active, ICE buffer flushed')
     },
   )
 

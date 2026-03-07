@@ -161,17 +161,23 @@ class CallManager(
         scope.launch { socketManager.callForceEnd.collect { onCallTerminated("force_end") } }
     }
 
+    private fun setState(newState: CallState) {
+        Log.i(TAG, "STATE: ${_callState.value} → $newState")
+        _callState.value = newState
+    }
+
     // ─── Outgoing call ────────────────────────────────────────────────────────
 
     fun startCall(peerId: String, peerName: String, peerAvatarUrl: String?, callType: String) {
-        if (_callState.value != CallState.IDLE) return
+        if (_callState.value != CallState.IDLE) { Log.w(TAG, "startCall ignored — state=${_callState.value}"); return }
+        Log.i(TAG, ">>> startCall peerId=$peerId callType=$callType")
 
         _isVideoCall.value = callType == "video"
         _callInfo.value = CallInfo(
             callId = "", peerId = peerId, peerName = peerName,
             peerAvatarUrl = peerAvatarUrl, callType = callType, isOutgoing = true,
         )
-        _callState.value = CallState.OUTGOING_RINGING
+        setState(CallState.OUTGOING_RINGING)
 
         startCallService()
         socketManager.emitCallInitiate(peerId, callType)
@@ -186,13 +192,17 @@ class CallManager(
     }
 
     private fun onCallInitiated(servCallId: String) {
-        if (_callState.value != CallState.OUTGOING_RINGING) return
+        if (_callState.value != CallState.OUTGOING_RINGING) { Log.w(TAG, "onCallInitiated ignored — state=${_callState.value}"); return }
+        Log.i(TAG, ">>> call_initiated callId=$servCallId — fetching TURN + creating offer")
         callId = servCallId
         _callInfo.value = _callInfo.value?.copy(callId = servCallId)
 
         scope.launch {
-            val token = tokenStore.getAccessToken() ?: return@launch
-            val iceServers = runCatching { apiService.getTurnCredentials("Bearer $token").iceServers }.getOrNull()
+            val token = tokenStore.getAccessToken() ?: run { Log.e(TAG, "onCallInitiated: no token"); return@launch }
+            val iceServers = runCatching { apiService.getTurnCredentials("Bearer $token").iceServers }
+                .onSuccess { Log.d(TAG, "TURN: got ${it.size} ICE servers") }
+                .onFailure { Log.w(TAG, "TURN fetch failed, using defaults: ${it.message}") }
+                .getOrNull()
             createPeerConnection(iceServers?.map { toRtcIceServer(it) } ?: defaultIceServers())
             setupLocalAudio()
             if (_isVideoCall.value) setupLocalVideo()
@@ -201,10 +211,11 @@ class CallManager(
     }
 
     private fun onCallRinging() {
-        Log.d(TAG, "Remote is ringing")
+        Log.i(TAG, ">>> call_ringing — remote device is ringing")
     }
 
     fun cancelCall() {
+        Log.i(TAG, ">>> cancelCall callId=$callId")
         callId?.let { socketManager.emitCallCancel(it) }
         cleanupAndSetIdle("cancelled")
     }
@@ -212,7 +223,9 @@ class CallManager(
     // ─── Incoming call ────────────────────────────────────────────────────────
 
     private fun onCallIncoming(event: IncomingCallEvent) {
+        Log.i(TAG, ">>> call_incoming callId=${event.callId} from=${event.fromUsername} type=${event.callType} state=${_callState.value}")
         if (_callState.value != CallState.IDLE) {
+            Log.w(TAG, "Auto-reject: already in state ${_callState.value}")
             socketManager.emitCallReject(event.callId)
             return
         }
@@ -224,7 +237,7 @@ class CallManager(
             peerName = event.fromUsername, peerAvatarUrl = event.fromAvatarUrl,
             callType = event.callType, isOutgoing = false,
         )
-        _callState.value = CallState.INCOMING_RINGING
+        setState(CallState.INCOMING_RINGING)
 
         socketManager.emitCallRinging(event.callId)
         startCallService()
@@ -238,9 +251,10 @@ class CallManager(
     }
 
     fun acceptCall() {
-        val cid = callId ?: return
-        if (_callState.value != CallState.INCOMING_RINGING) return
-        _callState.value = CallState.NEGOTIATING
+        val cid = callId ?: run { Log.e(TAG, "acceptCall: no callId"); return }
+        if (_callState.value != CallState.INCOMING_RINGING) { Log.w(TAG, "acceptCall ignored — state=${_callState.value}"); return }
+        Log.i(TAG, ">>> acceptCall callId=$cid")
+        setState(CallState.NEGOTIATING)
         ringTimeoutJob?.cancel()
 
         scope.launch {
@@ -258,11 +272,13 @@ class CallManager(
     }
 
     fun rejectCall() {
+        Log.i(TAG, ">>> rejectCall callId=$callId")
         callId?.let { socketManager.emitCallReject(it) }
         cleanupAndSetIdle("rejected")
     }
 
     private fun onCallOffer(incomingCallId: String, type: String, sdpStr: String) {
+        Log.i(TAG, ">>> call_offer received callId=$incomingCallId state=${_callState.value}")
         val cid = callId ?: return
         if (incomingCallId != cid) return
 
@@ -299,14 +315,15 @@ class CallManager(
     }
 
     private fun onCallAnswer(incomingCallId: String, type: String, sdpStr: String) {
-        val cid = callId ?: return
-        if (incomingCallId != cid) return
-        val pc = peerConnection ?: return
+        Log.i(TAG, ">>> call_answer received callId=$incomingCallId")
+        val cid = callId ?: run { Log.e(TAG, "onCallAnswer: no local callId"); return }
+        if (incomingCallId != cid) { Log.w(TAG, "onCallAnswer: id mismatch $incomingCallId != $cid"); return }
+        val pc = peerConnection ?: run { Log.e(TAG, "onCallAnswer: no PeerConnection"); return }
 
         val sdp = SessionDescription(SessionDescription.Type.fromCanonicalForm(type), sdpStr)
         pc.setRemoteDescription(NoOpSdpObserver("setRemote(answer)"), sdp)
         drainPendingCandidates()
-        _callState.value = CallState.NEGOTIATING
+        setState(CallState.NEGOTIATING)
     }
 
     // ─── ICE candidates ───────────────────────────────────────────────────────
@@ -335,12 +352,14 @@ class CallManager(
     // ─── End call ─────────────────────────────────────────────────────────────
 
     fun endCall() {
+        Log.i(TAG, ">>> endCall callId=$callId duration=${_durationSec.value}s")
         val cid = callId ?: run { cleanupAndSetIdle("ended"); return }
         socketManager.emitCallEnd(cid, _durationSec.value)
         cleanupAndSetIdle("ended")
     }
 
     private fun onCallTerminated(reason: String) {
+        Log.i(TAG, ">>> call terminated reason=$reason state=${_callState.value}")
         if (_callState.value == CallState.IDLE) return
         cleanupAndSetIdle(reason)
     }
@@ -409,21 +428,22 @@ class CallManager(
             }
 
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
-                Log.d(TAG, "ICE: $state")
+                Log.i(TAG, "ICE connection: $state")
                 when (state) {
                     PeerConnection.IceConnectionState.CONNECTED,
                     PeerConnection.IceConnectionState.COMPLETED -> {
+                        Log.i(TAG, "ICE CONNECTED — media should flow now")
                         iceRestartAttempts = 0
                         reconnectJob?.cancel()
                         if (_callState.value == CallState.NEGOTIATING || _callState.value == CallState.RECONNECTING) {
-                            _callState.value = CallState.IN_CALL
+                            setState(CallState.IN_CALL)
                             startDurationTimer()
                             startHeartbeat()
                         }
                     }
                     PeerConnection.IceConnectionState.DISCONNECTED -> {
                         if (_callState.value == CallState.IN_CALL) {
-                            _callState.value = CallState.RECONNECTING
+                            setState(CallState.RECONNECTING)
                             scheduleReconnect(3000)
                         }
                     }
@@ -517,12 +537,13 @@ class CallManager(
         }
         pc.createOffer(object : SdpObserver {
             override fun onCreateSuccess(offer: SessionDescription) {
+                Log.i(TAG, "SDP offer created — sending to callee")
                 pc.setLocalDescription(NoOpSdpObserver("setLocal(offer)"), offer)
                 socketManager.emitCallOffer(cid, offer.type.canonicalForm(), offer.description)
-                _callState.value = CallState.NEGOTIATING
+                setState(CallState.NEGOTIATING)
             }
             override fun onCreateFailure(error: String?) {
-                Log.e(TAG, "createOffer failed: $error")
+                Log.e(TAG, "createOffer FAILED: $error")
                 cleanupAndSetIdle("offer_failed")
             }
             override fun onSetSuccess() {}
@@ -606,12 +627,13 @@ class CallManager(
         _isVideoCall.value = false
         _isCameraFront.value = true
         _durationSec.value = 0L
-        _callState.value = CallState.ENDED
+        setState(CallState.ENDED)
 
         stopCallService()
 
         scope.launch {
             delay(1500)
+            Log.i(TAG, "STATE: ENDED → IDLE (reset)")
             _callState.value = CallState.IDLE
         }
     }
