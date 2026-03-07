@@ -339,7 +339,7 @@ class ChatViewModel(
         _editingMessage.value = null
     }
 
-    fun sendMediaMessage(context: Context, uri: Uri, type: String) {
+    fun sendMediaMessage(context: Context, uri: Uri, type: String, caption: String = "") {
         val replyId = _replyTo.value?.id
         _replyTo.value = null
         viewModelScope.launch {
@@ -357,6 +357,7 @@ class ChatViewModel(
                 )
                 val metaMap = mutableMapOf<String, Any>("type" to type)
                 if (replyId != null) metaMap["reply_to_id"] = replyId
+                if (caption.isNotBlank()) metaMap["content"] = caption
                 val metaPart = Gson().toJson(metaMap)
                     .toRequestBody("text/plain".toMediaType())
                 _uploadProgress.value = 0.5f

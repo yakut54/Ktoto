@@ -132,6 +132,9 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.ui.geometry.Offset
@@ -218,6 +221,7 @@ fun ChatScreen(
     val conversationsForPicker by vm.conversationsForPicker.collectAsState()
 
     var showAttachSheet by remember { mutableStateOf(false) }
+    var pendingMedia by remember { mutableStateOf<Pair<Uri, String>?>(null) }
     var recordingCancelHint by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf<ru.yakut54.ktoto.data.model.Message?>(null) }
     var showForwardPicker by remember { mutableStateOf<ru.yakut54.ktoto.data.model.Message?>(null) }
@@ -251,16 +255,16 @@ fun ChatScreen(
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
-    ) { uri: Uri? -> uri?.let { vm.sendMediaMessage(context, it, "image") } }
+    ) { uri: Uri? -> uri?.let { pendingMedia = it to "image" } }
 
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
-    ) { success -> if (success) cameraUri?.let { vm.sendMediaMessage(context, it, "image") } }
+    ) { success -> if (success) cameraUri?.let { pendingMedia = it to "image" } }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? -> uri?.let { vm.sendMediaMessage(context, it, "file") } }
+    ) { uri: Uri? -> uri?.let { pendingMedia = it to "file" } }
 
     // Mic permission launcher — called when permission not yet granted
     val micPermLauncher = rememberLauncherForActivityResult(
@@ -1060,6 +1064,87 @@ fun ChatScreen(
                 TextButton(onClick = { showBlockConfirm = false }) { Text("Отмена") }
             },
         )
+    }
+
+    // ── Media preview + caption sheet ──────────────────────────────────────────
+    if (pendingMedia != null) {
+        val (mediaUri, mediaType) = pendingMedia!!
+        var captionText by remember { mutableStateOf("") }
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val focusRequester = remember { FocusRequester() }
+        val fileName = remember(mediaUri) {
+            context.contentResolver.query(mediaUri, null, null, null, null)?.use { cursor ->
+                val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                cursor.moveToFirst()
+                if (idx >= 0) cursor.getString(idx) else null
+            } ?: mediaUri.lastPathSegment ?: "Файл"
+        }
+        ModalBottomSheet(
+            onDismissRequest = { pendingMedia = null; captionText = "" },
+            sheetState = sheetState,
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 16.dp)
+                    .imePadding(),
+            ) {
+                if (mediaType == "image" || mediaType == "video") {
+                    AsyncImage(
+                        model = mediaUri,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 320.dp)
+                            .clip(RoundedCornerShape(12.dp)),
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(Icons.Default.Description, null, modifier = Modifier.size(36.dp))
+                        Text(fileName, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                TextField(
+                    value = captionText,
+                    onValueChange = { captionText = it },
+                    placeholder = { Text("Добавить подпись...") },
+                    modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                    ),
+                    maxLines = 3,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                )
+                HorizontalDivider()
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        vm.sendMediaMessage(context, mediaUri, mediaType, captionText.trim())
+                        pendingMedia = null
+                        captionText = ""
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Отправить")
+                }
+            }
+            LaunchedEffect(Unit) {
+                kotlinx.coroutines.delay(200)
+                focusRequester.requestFocus()
+            }
+        }
     }
 
     // Attach bottom sheet — gallery + file
