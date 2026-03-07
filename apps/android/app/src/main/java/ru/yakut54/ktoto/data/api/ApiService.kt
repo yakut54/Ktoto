@@ -89,6 +89,18 @@ interface ApiService {
         @Path("msgId") messageId: String,
     )
 
+    @HTTP(method = "DELETE", path = "api/conversations/{id}", hasBody = false)
+    suspend fun deleteConversation(
+        @Header("Authorization") token: String,
+        @Path("id") conversationId: String,
+    )
+
+    @POST("api/conversations/{id}/block")
+    suspend fun blockConversationPartner(
+        @Header("Authorization") token: String,
+        @Path("id") conversationId: String,
+    )
+
     @POST("api/conversations/{id}/read")
     suspend fun markConversationRead(
         @Header("Authorization") token: String,

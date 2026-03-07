@@ -27,6 +27,8 @@ data class Conversation(
     val updatedAt: String,
     val lastMessage: LastMessage?,
     val unreadCount: Int,
+    val otherId: String? = null,
+    val otherStatus: String? = null,
 )
 
 data class LastMessage(

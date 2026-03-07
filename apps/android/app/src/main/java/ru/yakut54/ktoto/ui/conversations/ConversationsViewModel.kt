@@ -2,6 +2,8 @@ package ru.yakut54.ktoto.ui.conversations
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -10,6 +12,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import ru.yakut54.ktoto.data.api.ApiService
 import ru.yakut54.ktoto.data.model.Conversation
+import ru.yakut54.ktoto.data.socket.SocketManager
 import ru.yakut54.ktoto.data.store.TokenStore
 
 sealed class ConversationsState {
@@ -21,19 +24,39 @@ sealed class ConversationsState {
 class ConversationsViewModel(
     private val api: ApiService,
     private val tokenStore: TokenStore,
+    private val socketManager: SocketManager,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<ConversationsState>(ConversationsState.Loading)
     val state: StateFlow<ConversationsState> = _state
 
-    // Only true when user manually pulls to refresh
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing
 
     val userId = tokenStore.userId.stateIn(viewModelScope, SharingStarted.Eagerly, "")
     val username = tokenStore.username.stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
-    // Silent load — called on screen resume, no visible indicator
+    /** Real-time online user IDs from WebSocket */
+    val onlineUsers: StateFlow<Set<String>> = socketManager.onlineUsers
+
+    /** Conversation IDs where someone is currently typing */
+    private val _typingConvIds = MutableStateFlow<Set<String>>(emptySet())
+    val typingConvIds: StateFlow<Set<String>> = _typingConvIds
+    private val typingJobs = mutableMapOf<String, Job>()
+
+    init {
+        viewModelScope.launch {
+            socketManager.typing.collect { (convId, _) ->
+                _typingConvIds.value = _typingConvIds.value + convId
+                typingJobs[convId]?.cancel()
+                typingJobs[convId] = viewModelScope.launch {
+                    delay(3000)
+                    _typingConvIds.value = _typingConvIds.value - convId
+                }
+            }
+        }
+    }
+
     fun load() {
         viewModelScope.launch {
             val hasData = _state.value is ConversationsState.Success
@@ -42,13 +65,15 @@ class ConversationsViewModel(
                 val token = tokenStore.accessToken.first() ?: error("Not authenticated")
                 val list = api.getConversations("Bearer $token")
                 _state.value = ConversationsState.Success(list)
+                // Seed initial online status from REST snapshot
+                val onlineFromRest = list.mapNotNull { if (it.otherStatus == "online") it.otherId else null }.toSet()
+                socketManager.initOnlineUsers(onlineFromRest)
             } catch (e: Exception) {
                 if (!hasData) _state.value = ConversationsState.Error(e.message ?: "Failed to load")
             }
         }
     }
 
-    // Explicit pull-to-refresh — shows the spinner indicator
     fun refresh() {
         viewModelScope.launch {
             _refreshing.value = true
@@ -56,9 +81,10 @@ class ConversationsViewModel(
                 val token = tokenStore.accessToken.first() ?: error("Not authenticated")
                 val list = api.getConversations("Bearer $token")
                 _state.value = ConversationsState.Success(list)
-            } catch (_: Exception) {
-                // Silently fail — don't replace existing data on refresh error
-            } finally {
+                val onlineFromRest = list.mapNotNull { if (it.otherStatus == "online") it.otherId else null }.toSet()
+                socketManager.initOnlineUsers(onlineFromRest)
+            } catch (_: Exception) {}
+            finally {
                 _refreshing.value = false
             }
         }

@@ -110,6 +110,9 @@ import org.koin.androidx.compose.koinViewModel
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -133,6 +136,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 
 import ru.yakut54.ktoto.data.model.Attachment
 import ru.yakut54.ktoto.data.model.Message
+import ru.yakut54.ktoto.ui.navigation.SharePayload
 import ru.yakut54.ktoto.utils.formatMessageTime
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -141,8 +145,11 @@ fun ChatScreen(
     conversationId: String,
     conversationName: String,
     currentUserId: String,
+    otherUserId: String = "",
     onBack: () -> Unit,
     onNavigateToChat: (convId: String, convName: String) -> Unit = { _, _ -> },
+    sharePayload: SharePayload? = null,
+    onShareConsumed: () -> Unit = {},
 ) {
     val vm: ChatViewModel = koinViewModel()
     val messages by vm.messages.collectAsState()
@@ -160,11 +167,30 @@ fun ChatScreen(
     val density = LocalDensity.current
     val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
 
+    val partnerOnline by vm.partnerOnline.collectAsState()
+
     LaunchedEffect(conversationId) {
-        vm.init(conversationId)
+        vm.init(conversationId, otherUserId)
         // Cancel any push notification for this conversation
         val nm = context.getSystemService(android.app.NotificationManager::class.java)
         nm.cancel(conversationId.hashCode())
+    }
+
+    // Auto-send shared content when navigating here from share sheet
+    LaunchedEffect(sharePayload?.uri, sharePayload?.text) {
+        val payload = sharePayload ?: return@LaunchedEffect
+        delay(300) // let vm.init settle
+        onShareConsumed()
+        if (payload.uri != null) {
+            val type = when {
+                payload.mimeType?.startsWith("image/") == true -> "image"
+                payload.mimeType?.startsWith("video/") == true -> "video"
+                else -> "file"
+            }
+            vm.sendMediaMessage(context, payload.uri, type)
+        } else if (payload.text != null) {
+            vm.sendMessage(payload.text)
+        }
     }
 
     val listState = rememberLazyListState()
@@ -188,6 +214,9 @@ fun ChatScreen(
     var recordingCancelHint by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf<ru.yakut54.ktoto.data.model.Message?>(null) }
     var showForwardPicker by remember { mutableStateOf<ru.yakut54.ktoto.data.model.Message?>(null) }
+    var showChatMenu by remember { mutableStateOf(false) }
+    var showLeaveConfirm by remember { mutableStateOf(false) }
+    var showBlockConfirm by remember { mutableStateOf(false) }
 
     // ── Multi-select state ─────────────────────────────────────────────────────
     var selectionMode by remember { mutableStateOf(false) }
@@ -333,14 +362,43 @@ fun ChatScreen(
                     title = {
                         Column {
                             Text(conversationName, style = MaterialTheme.typography.titleMedium)
-                            if (isTyping) {
-                                Text("печатает...", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                            when {
+                                isTyping -> Text(
+                                    "печатает...",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                partnerOnline -> Text(
+                                    "онлайн",
+                                    fontSize = 12.sp,
+                                    color = androidx.compose.ui.graphics.Color(0xFF4CAF50),
+                                )
                             }
                         }
                     },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад")
+                        }
+                    },
+                    actions = {
+                        Box {
+                            IconButton(onClick = { showChatMenu = true }) {
+                                Icon(Icons.Default.MoreVert, "Меню")
+                            }
+                            DropdownMenu(
+                                expanded = showChatMenu,
+                                onDismissRequest = { showChatMenu = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Удалить чат") },
+                                    onClick = { showChatMenu = false; showLeaveConfirm = true },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Добавить в ЧС", color = MaterialTheme.colorScheme.error) },
+                                    onClick = { showChatMenu = false; showBlockConfirm = true },
+                                )
+                            }
                         }
                     },
                 )
@@ -776,6 +834,12 @@ fun ChatScreen(
 
                 Box(
                     modifier = Modifier
+                        .animateItem(
+                            fadeOutSpec = androidx.compose.animation.core.tween(180),
+                            placementSpec = androidx.compose.animation.core.spring(
+                                stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+                            ),
+                        )
                         .fillMaxWidth()
                         .background(
                             if (isBulkSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
@@ -951,6 +1015,42 @@ fun ChatScreen(
                 }
             }
         }
+    }
+
+    // Leave conversation dialog
+    if (showLeaveConfirm) {
+        AlertDialog(
+            onDismissRequest = { showLeaveConfirm = false },
+            title = { Text("Удалить чат?") },
+            text = { Text("Чат исчезнет из вашего списка. Собеседник не увидит, что вы покинули чат.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showLeaveConfirm = false
+                    vm.leaveConversation(onDone = onBack)
+                }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLeaveConfirm = false }) { Text("Отмена") }
+            },
+        )
+    }
+
+    // Block user dialog
+    if (showBlockConfirm) {
+        AlertDialog(
+            onDismissRequest = { showBlockConfirm = false },
+            title = { Text("Добавить в чёрный список?") },
+            text = { Text("Пользователь не сможет писать вам. Чат будет удалён из вашего списка.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showBlockConfirm = false
+                    vm.blockUser(onDone = onBack)
+                }) { Text("Заблокировать", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBlockConfirm = false }) { Text("Отмена") }
+            },
+        )
     }
 
     // Attach bottom sheet — gallery + file

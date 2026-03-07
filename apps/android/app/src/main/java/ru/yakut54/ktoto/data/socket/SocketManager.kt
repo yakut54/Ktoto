@@ -4,7 +4,10 @@ import com.google.gson.Gson
 import io.socket.client.IO
 import io.socket.client.Socket
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import ru.yakut54.ktoto.data.model.Message
 import ru.yakut54.ktoto.data.model.MessagesReadEvent
 
@@ -29,6 +32,15 @@ class SocketManager {
     private val _messagesRead = MutableSharedFlow<MessagesReadEvent>(extraBufferCapacity = 64)
     val messagesRead = _messagesRead.asSharedFlow()
 
+    /** Set of user IDs currently online */
+    private val _onlineUsers = MutableStateFlow<Set<String>>(emptySet())
+    val onlineUsers: StateFlow<Set<String>> = _onlineUsers.asStateFlow()
+
+    /** Seed initial online status from REST (called after loading conversations) */
+    fun initOnlineUsers(userIds: Set<String>) {
+        _onlineUsers.value = userIds
+    }
+
     fun connect(token: String) {
         if (socket?.connected() == true) return
 
@@ -51,6 +63,18 @@ class SocketManager {
                     val convId = obj["conversationId"] as? String ?: return@runCatching
                     val userId = obj["userId"] as? String ?: return@runCatching
                     _typing.tryEmit(convId to userId)
+                }
+            }
+            on("user_status") { args ->
+                runCatching {
+                    val obj = gson.fromJson(args[0].toString(), Map::class.java)
+                    val uid = obj["userId"] as? String ?: return@runCatching
+                    val status = obj["status"] as? String ?: return@runCatching
+                    _onlineUsers.value = if (status == "online") {
+                        _onlineUsers.value + uid
+                    } else {
+                        _onlineUsers.value - uid
+                    }
                 }
             }
             on("message_edited") { args ->
@@ -85,5 +109,6 @@ class SocketManager {
     fun disconnect() {
         socket?.disconnect()
         socket = null
+        _onlineUsers.value = emptySet()
     }
 }

@@ -65,6 +65,8 @@ export async function conversationRoutes(app: FastifyInstance) {
       last_message_user_id: string | null
       unread_count: string
       other_username: string | null
+      other_user_id: string | null
+      other_status: string | null
     }>(
       `SELECT
          c.id, c.name, c.type, c.avatar_url, c.updated_at,
@@ -79,7 +81,9 @@ export async function conversationRoutes(app: FastifyInstance) {
              AND m2.created_at > COALESCE(cp.last_read_at, '1970-01-01'::timestamptz)
              AND m2.user_id != $1
          ) AS unread_count,
-         other.username AS other_username
+         other.username AS other_username,
+         other.user_id AS other_user_id,
+         other.status AS other_status
        FROM conversations c
        JOIN conversation_participants cp
          ON cp.conversation_id = c.id AND cp.user_id = $1
@@ -90,7 +94,7 @@ export async function conversationRoutes(app: FastifyInstance) {
          ORDER BY created_at DESC LIMIT 1
        ) lm ON true
        LEFT JOIN LATERAL (
-         SELECT u.username FROM conversation_participants cp2
+         SELECT u.username, u.id AS user_id, u.status FROM conversation_participants cp2
          JOIN users u ON u.id = cp2.user_id
          WHERE cp2.conversation_id = c.id AND cp2.user_id != $1
          LIMIT 1
@@ -120,6 +124,8 @@ export async function conversationRoutes(app: FastifyInstance) {
           }
         : null,
       unreadCount: Number(r.unread_count),
+      otherId: r.other_user_id ?? null,
+      otherStatus: r.other_status ?? null,
     }))
   })
 

@@ -15,9 +15,12 @@ import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -81,6 +84,12 @@ class ChatViewModel(
     private val _conversationsForPicker = MutableStateFlow<List<ru.yakut54.ktoto.data.model.Conversation>>(emptyList())
     val conversationsForPicker: StateFlow<List<ru.yakut54.ktoto.data.model.Conversation>> = _conversationsForPicker
 
+    private val _otherUserId = MutableStateFlow("")
+    /** true when the chat partner is currently online */
+    val partnerOnline: StateFlow<Boolean> = combine(socketManager.onlineUsers, _otherUserId) { online, otherId ->
+        otherId.isNotBlank() && otherId in online
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     // ── Voice state ────────────────────────────────────────────────────────────
     private val _voiceState = MutableStateFlow(VoiceState.IDLE)
     val voiceState: StateFlow<VoiceState> = _voiceState
@@ -125,8 +134,9 @@ class ChatViewModel(
 
     // ── Init ───────────────────────────────────────────────────────────────────
 
-    fun init(convId: String) {
+    fun init(convId: String, otherUserId: String = "") {
         conversationId = convId
+        if (otherUserId.isNotBlank()) _otherUserId.value = otherUserId
         viewModelScope.launch {
             currentUserId = tokenStore.userId.first()
             currentUsername = tokenStore.username.first() ?: ""
@@ -139,7 +149,13 @@ class ChatViewModel(
         viewModelScope.launch {
             runCatching {
                 val token = tokenStore.accessToken.first() ?: return@launch
-                _messages.value = api.getMessages("Bearer $token", conversationId)
+                val msgs = api.getMessages("Bearer $token", conversationId)
+                _messages.value = msgs
+                // Discover partner's ID from history if not yet known
+                if (_otherUserId.value.isBlank()) {
+                    val myId = tokenStore.userId.first()
+                    msgs.firstOrNull { it.sender.id != myId }?.sender?.id?.let { _otherUserId.value = it }
+                }
             }
         }
     }
@@ -519,6 +535,26 @@ class ChatViewModel(
     fun deleteVoicePreview() = cancelRecording()
 
     // ── Typing ─────────────────────────────────────────────────────────────────
+
+    fun leaveConversation(onDone: () -> Unit) {
+        viewModelScope.launch {
+            runCatching {
+                val token = tokenStore.accessToken.first() ?: return@launch
+                api.deleteConversation("Bearer $token", conversationId)
+            }
+            onDone()
+        }
+    }
+
+    fun blockUser(onDone: () -> Unit) {
+        viewModelScope.launch {
+            runCatching {
+                val token = tokenStore.accessToken.first() ?: return@launch
+                api.blockConversationPartner("Bearer $token", conversationId)
+            }
+            onDone()
+        }
+    }
 
     fun markConversationRead() {
         viewModelScope.launch {

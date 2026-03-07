@@ -3,6 +3,7 @@ package ru.yakut54.ktoto
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -13,11 +14,13 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.MutableStateFlow
 import ru.yakut54.ktoto.service.PushService
 import ru.yakut54.ktoto.ui.navigation.AppNavigation
+import ru.yakut54.ktoto.ui.navigation.SharePayload
 import ru.yakut54.ktoto.ui.theme.KtotoTheme
 
 class MainActivity : ComponentActivity() {
 
     val pendingConversationId = MutableStateFlow<String?>(null)
+    val pendingShareData = MutableStateFlow<SharePayload?>(null)
 
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -31,6 +34,7 @@ class MainActivity : ComponentActivity() {
         intent?.getStringExtra("conversationId")?.let {
             pendingConversationId.value = it
         }
+        handleShareIntent(intent)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
@@ -46,7 +50,10 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             KtotoTheme {
-                AppNavigation(pendingConversationId = pendingConversationId)
+                AppNavigation(
+                    pendingConversationId = pendingConversationId,
+                    pendingShareData = pendingShareData,
+                )
             }
         }
     }
@@ -55,6 +62,26 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         intent.getStringExtra("conversationId")?.let {
             pendingConversationId.value = it
+        }
+        handleShareIntent(intent)
+    }
+
+    private fun handleShareIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND) return
+        val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+        val uri: Uri? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        }
+        if (uri != null) {
+            runCatching {
+                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        }
+        if (text != null || uri != null) {
+            pendingShareData.value = SharePayload(uri = uri, text = text, mimeType = intent.type)
         }
     }
 

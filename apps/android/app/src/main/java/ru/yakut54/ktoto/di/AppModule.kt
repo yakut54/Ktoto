@@ -18,7 +18,7 @@ val appModule = module {
     single { buildApiService(BASE_URL, get()) }
     single { SocketManager() }
     viewModel { AuthViewModel(get(), get()) }
-    viewModel { ConversationsViewModel(get(), get()) }
+    viewModel { ConversationsViewModel(get(), get(), get()) }
     viewModel { ChatViewModel(get(), get(), get()) }
     viewModel { NewChatViewModel(get(), get()) }
 }

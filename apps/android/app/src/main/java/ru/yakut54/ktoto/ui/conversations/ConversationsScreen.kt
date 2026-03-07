@@ -62,6 +62,8 @@ fun ConversationsScreen(
     val refreshing by vm.refreshing.collectAsState()
     val userId by vm.userId.collectAsState()
     val username by vm.username.collectAsState()
+    val onlineUsers by vm.onlineUsers.collectAsState()
+    val typingConvIds by vm.typingConvIds.collectAsState()
 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle) {
@@ -143,6 +145,8 @@ fun ConversationsScreen(
                                 ConversationItem(
                                     conversation = conv,
                                     currentUserId = userId,
+                                    isOnline = conv.otherId != null && conv.otherId in onlineUsers,
+                                    isTyping = conv.id in typingConvIds,
                                     onClick = { onConversationClick(conv, userId) },
                                 )
                                 HorizontalDivider(Modifier.padding(start = 80.dp))
@@ -159,6 +163,8 @@ fun ConversationsScreen(
 private fun ConversationItem(
     conversation: Conversation,
     currentUserId: String,
+    isOnline: Boolean,
+    isTyping: Boolean,
     onClick: () -> Unit,
 ) {
     val name        = conversation.name ?: "Чат"
@@ -171,19 +177,31 @@ private fun ConversationItem(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Avatar
-        Box(
-            modifier = Modifier
-                .size(52.dp)
-                .background(avatarColor, CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = name.take(1).uppercase(),
-                fontWeight = FontWeight.Bold,
-                fontSize = 20.sp,
-                color = Color.White,
-            )
+        // Avatar with optional online dot
+        Box(modifier = Modifier.size(52.dp)) {
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .background(avatarColor, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = name.take(1).uppercase(),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp,
+                    color = Color.White,
+                )
+            }
+            if (isOnline) {
+                Box(
+                    modifier = Modifier
+                        .size(14.dp)
+                        .align(Alignment.BottomEnd)
+                        .background(MaterialTheme.colorScheme.background, CircleShape)
+                        .padding(2.dp)
+                        .background(Color(0xFF4CAF50), CircleShape),
+                )
+            }
         }
 
         Spacer(Modifier.width(12.dp))
@@ -218,29 +236,38 @@ private fun ConversationItem(
 
             Spacer(Modifier.height(2.dp))
 
-            // Last message preview
-            val lm = conversation.lastMessage
-            val mediaPrefix = when (lm?.type) {
-                "image" -> "📷 Фото"
-                "voice" -> "🎤 Голосовое"
-                "video" -> "🎬 Видео"
-                "file"  -> "📎 Файл"
-                else    -> null
+            // Last message preview / typing indicator
+            if (isTyping) {
+                Text(
+                    text = "Печатает...",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                )
+            } else {
+                val lm = conversation.lastMessage
+                val mediaPrefix = when (lm?.type) {
+                    "image" -> "📷 Фото"
+                    "voice" -> "🎤 Голосовое"
+                    "video" -> "🎬 Видео"
+                    "file"  -> "📎 Файл"
+                    else    -> null
+                }
+                val preview = when {
+                    lm == null -> "Нет сообщений"
+                    mediaPrefix != null && lm.userId == currentUserId -> "Вы: $mediaPrefix"
+                    mediaPrefix != null -> mediaPrefix
+                    lm.userId == currentUserId -> "Вы: ${lm.content.orEmpty()}"
+                    else -> lm.content.orEmpty()
+                }
+                Text(
+                    text = preview,
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-            val preview = when {
-                lm == null -> "Нет сообщений"
-                mediaPrefix != null && lm.userId == currentUserId -> "Вы: $mediaPrefix"
-                mediaPrefix != null -> mediaPrefix
-                lm.userId == currentUserId -> "Вы: ${lm.content.orEmpty()}"
-                else -> lm.content.orEmpty()
-            }
-            Text(
-                text = preview,
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
 
         if (conversation.unreadCount > 0) {
