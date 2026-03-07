@@ -54,6 +54,7 @@ import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
@@ -158,7 +159,7 @@ fun ChatScreen(
     otherUserId: String = "",
     onBack: () -> Unit,
     onNavigateToChat: (convId: String, convName: String) -> Unit = { _, _ -> },
-    onStartCall: (() -> Unit)? = null,
+    onStartCall: ((callType: String) -> Unit)? = null,
     sharePayload: SharePayload? = null,
     onShareConsumed: () -> Unit = {},
 ) {
@@ -395,9 +396,12 @@ fun ChatScreen(
                         }
                     },
                     actions = {
-                        // Audio call button (only for direct chats with a known peer)
+                        // Call buttons (only for direct chats with a known peer)
                         if (onStartCall != null && otherUserId.isNotBlank()) {
-                            IconButton(onClick = onStartCall) {
+                            IconButton(onClick = { onStartCall("video") }) {
+                                Icon(Icons.Default.Videocam, "Видеозвонок")
+                            }
+                            IconButton(onClick = { onStartCall("audio") }) {
                                 Icon(Icons.Default.Call, "Позвонить")
                             }
                         }

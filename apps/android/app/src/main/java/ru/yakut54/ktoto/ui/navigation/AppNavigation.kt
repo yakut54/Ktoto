@@ -279,11 +279,9 @@ fun AppNavigation(
                 onNavigateToChat = { targetConvId, targetConvName ->
                     navController.navigate(Routes.chat(targetConvId, targetConvName, userId))
                 },
-                onStartCall = if (otherId.isNotBlank()) {
-                    {
-                        callVm.startCall(otherId, convName, null, "audio")
-                        navController.navigate(Routes.CALL) { launchSingleTop = true }
-                    }
+                onStartCall = if (otherId.isNotBlank()) { callType ->
+                    callVm.startCall(otherId, convName, null, callType)
+                    navController.navigate(Routes.CALL) { launchSingleTop = true }
                 } else null,
                 sharePayload = shareData,
                 onShareConsumed = { (pendingShareData as? MutableStateFlow)?.value = null },

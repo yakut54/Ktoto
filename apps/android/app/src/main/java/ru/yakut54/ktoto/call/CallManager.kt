@@ -3,6 +3,7 @@ package ru.yakut54.ktoto.call
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
@@ -18,7 +19,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
+import org.webrtc.Camera2Capturer
+import org.webrtc.Camera2Enumerator
+import org.webrtc.CameraVideoCapturer
 import org.webrtc.DataChannel
+import org.webrtc.DefaultVideoDecoderFactory
+import org.webrtc.DefaultVideoEncoderFactory
+import org.webrtc.EglBase
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
@@ -27,6 +34,9 @@ import org.webrtc.PeerConnectionFactory
 import org.webrtc.RtpReceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
+import org.webrtc.SurfaceTextureHelper
+import org.webrtc.VideoSource
+import org.webrtc.VideoTrack
 import ru.yakut54.ktoto.data.api.ApiService
 import ru.yakut54.ktoto.data.model.IceCandidatePayload
 import ru.yakut54.ktoto.data.model.IncomingCallEvent
@@ -65,7 +75,7 @@ class CallManager(
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    // ─── State ────────────────────────────────────────────────────────────────
+    // ─── Audio/call state ─────────────────────────────────────────────────────
 
     private val _callState = MutableStateFlow(CallState.IDLE)
     val callState: StateFlow<CallState> = _callState.asStateFlow()
@@ -79,9 +89,30 @@ class CallManager(
     private val _isSpeakerOn = MutableStateFlow(false)
     val isSpeakerOn: StateFlow<Boolean> = _isSpeakerOn.asStateFlow()
 
-    /** Elapsed seconds in IN_CALL state */
     private val _durationSec = MutableStateFlow(0L)
     val durationSec: StateFlow<Long> = _durationSec.asStateFlow()
+
+    // ─── Video state ──────────────────────────────────────────────────────────
+
+    private val _isVideoCall = MutableStateFlow(false)
+    val isVideoCall: StateFlow<Boolean> = _isVideoCall.asStateFlow()
+
+    private val _isVideoEnabled = MutableStateFlow(false)
+    val isVideoEnabled: StateFlow<Boolean> = _isVideoEnabled.asStateFlow()
+
+    private val _isCameraFront = MutableStateFlow(true)
+    val isCameraFront: StateFlow<Boolean> = _isCameraFront.asStateFlow()
+
+    private val _localVideoTrack = MutableStateFlow<VideoTrack?>(null)
+    val localVideoTrackState: StateFlow<VideoTrack?> = _localVideoTrack.asStateFlow()
+
+    private val _remoteVideoTrack = MutableStateFlow<VideoTrack?>(null)
+    val remoteVideoTrackState: StateFlow<VideoTrack?> = _remoteVideoTrack.asStateFlow()
+
+    // ─── EGL (shared for entire session) ──────────────────────────────────────
+
+    private var eglBase: EglBase? = null
+    val eglBaseContext: EglBase.Context? get() = eglBase?.eglBaseContext
 
     // ─── WebRTC ───────────────────────────────────────────────────────────────
 
@@ -90,11 +121,18 @@ class CallManager(
     private var localAudioTrack: AudioTrack? = null
     private var audioSource: AudioSource? = null
 
+    // ─── Video WebRTC ─────────────────────────────────────────────────────────
+
+    private var videoSource: VideoSource? = null
+    private var localVideoTrackObj: VideoTrack? = null
+    private var cameraCapturer: Camera2Capturer? = null
+    private var surfaceTextureHelper: SurfaceTextureHelper? = null
+
     // ─── Session ──────────────────────────────────────────────────────────────
 
     private var callId: String? = null
-    private var pendingOffer: SessionDescription? = null   // stored while in INCOMING_RINGING
-    private var pendingCandidates = mutableListOf<IceCandidatePayload>()  // buffered before setRemoteDesc
+    private var pendingOffer: SessionDescription? = null
+    private var pendingCandidates = mutableListOf<IceCandidatePayload>()
 
     private var iceRestartAttempts = 0
     private var reconnectJob: Job? = null
@@ -102,7 +140,7 @@ class CallManager(
     private var heartbeatJob: Job? = null
     private var ringTimeoutJob: Job? = null
 
-    // ─── Audio ───────────────────────────────────────────────────────────────
+    // ─── Audio ────────────────────────────────────────────────────────────────
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null
@@ -110,6 +148,7 @@ class CallManager(
     // ─────────────────────────────────────────────────────────────────────────
 
     fun init() {
+        eglBase = EglBase.create()
         scope.launch { socketManager.callIncoming.collect { onCallIncoming(it) } }
         scope.launch { socketManager.callInitiated.collect { onCallInitiated(it) } }
         scope.launch { socketManager.callRinging.collect { onCallRinging() } }
@@ -127,6 +166,7 @@ class CallManager(
     fun startCall(peerId: String, peerName: String, peerAvatarUrl: String?, callType: String) {
         if (_callState.value != CallState.IDLE) return
 
+        _isVideoCall.value = callType == "video"
         _callInfo.value = CallInfo(
             callId = "", peerId = peerId, peerName = peerName,
             peerAvatarUrl = peerAvatarUrl, callType = callType, isOutgoing = true,
@@ -136,7 +176,6 @@ class CallManager(
         startCallService()
         socketManager.emitCallInitiate(peerId, callType)
 
-        // Ring timeout: 30s
         ringTimeoutJob = scope.launch {
             delay(30_000)
             if (_callState.value == CallState.OUTGOING_RINGING) {
@@ -151,18 +190,17 @@ class CallManager(
         callId = servCallId
         _callInfo.value = _callInfo.value?.copy(callId = servCallId)
 
-        // Create offer immediately so callee gets it when they accept
         scope.launch {
             val token = tokenStore.getAccessToken() ?: return@launch
             val iceServers = runCatching { apiService.getTurnCredentials("Bearer $token").iceServers }.getOrNull()
             createPeerConnection(iceServers?.map { toRtcIceServer(it) } ?: defaultIceServers())
             setupLocalAudio()
+            if (_isVideoCall.value) setupLocalVideo()
             createAndSendOffer()
         }
     }
 
     private fun onCallRinging() {
-        // Callee confirmed ring — UI update only (state stays OUTGOING_RINGING)
         Log.d(TAG, "Remote is ringing")
     }
 
@@ -175,11 +213,11 @@ class CallManager(
 
     private fun onCallIncoming(event: IncomingCallEvent) {
         if (_callState.value != CallState.IDLE) {
-            // We're busy — reject automatically
             socketManager.emitCallReject(event.callId)
             return
         }
 
+        _isVideoCall.value = event.callType == "video"
         callId = event.callId
         _callInfo.value = CallInfo(
             callId = event.callId, peerId = event.fromUserId,
@@ -191,7 +229,6 @@ class CallManager(
         socketManager.emitCallRinging(event.callId)
         startCallService()
 
-        // Ring timeout: 30s auto-miss
         ringTimeoutJob = scope.launch {
             delay(30_000)
             if (_callState.value == CallState.INCOMING_RINGING) {
@@ -211,13 +248,12 @@ class CallManager(
             val iceServers = runCatching { apiService.getTurnCredentials("Bearer $token").iceServers }.getOrNull()
             createPeerConnection(iceServers?.map { toRtcIceServer(it) } ?: defaultIceServers())
             setupLocalAudio()
+            if (_isVideoCall.value) setupLocalVideo()
 
             val offer = pendingOffer
             if (offer != null) {
-                // We already have the offer — process it immediately
                 applyOfferAndAnswer(cid, offer)
             }
-            // else: wait for offer to arrive in onCallOffer()
         }
     }
 
@@ -231,16 +267,9 @@ class CallManager(
         if (incomingCallId != cid) return
 
         val sdp = SessionDescription(SessionDescription.Type.fromCanonicalForm(type), sdpStr)
-
         when (_callState.value) {
-            CallState.INCOMING_RINGING -> {
-                // User hasn't accepted yet — store offer
-                pendingOffer = sdp
-            }
-            CallState.NEGOTIATING -> {
-                // Already accepted — process immediately
-                scope.launch { applyOfferAndAnswer(cid, sdp) }
-            }
+            CallState.INCOMING_RINGING -> pendingOffer = sdp
+            CallState.NEGOTIATING -> scope.launch { applyOfferAndAnswer(cid, sdp) }
             else -> {}
         }
     }
@@ -248,13 +277,12 @@ class CallManager(
     private suspend fun applyOfferAndAnswer(cid: String, offer: SessionDescription) {
         val pc = peerConnection ?: return
         pc.setRemoteDescription(NoOpSdpObserver("setRemote(offer)"), offer)
-
-        // Apply any buffered ICE candidates
         drainPendingCandidates()
 
+        val isVideo = _isVideoCall.value
         val constraints = MediaConstraints().apply {
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", if (isVideo) "true" else "false"))
         }
         pc.createAnswer(object : SdpObserver {
             override fun onCreateSuccess(answer: SessionDescription) {
@@ -283,13 +311,12 @@ class CallManager(
 
     // ─── ICE candidates ───────────────────────────────────────────────────────
 
-    private fun onIceCandidate(incomingCallId: String, payload: ru.yakut54.ktoto.data.model.IceCandidatePayload) {
+    private fun onIceCandidate(incomingCallId: String, payload: IceCandidatePayload) {
         val cid = callId ?: return
         if (incomingCallId != cid) return
 
         val candidate = IceCandidate(payload.sdpMid ?: "", payload.sdpMLineIndex ?: 0, payload.candidate)
         val pc = peerConnection
-
         if (pc?.remoteDescription == null) {
             pendingCandidates.add(payload)
         } else {
@@ -330,13 +357,42 @@ class CallManager(
     fun toggleSpeaker() {
         val newSpeaker = !_isSpeakerOn.value
         _isSpeakerOn.value = newSpeaker
-        audioManager.isSpeakerphoneOn = newSpeaker
+        setSpeakerphoneOn(newSpeaker)
+    }
+
+    fun toggleVideo() {
+        val newEnabled = !_isVideoEnabled.value
+        _isVideoEnabled.value = newEnabled
+        localVideoTrackObj?.setEnabled(newEnabled)
+        if (newEnabled) {
+            cameraCapturer?.startCapture(1280, 720, 30)
+        } else {
+            try { cameraCapturer?.stopCapture() } catch (_: Exception) {}
+        }
+    }
+
+    fun switchCamera() {
+        cameraCapturer?.switchCamera(object : CameraVideoCapturer.CameraSwitchHandler {
+            override fun onCameraSwitchDone(isFrontFacing: Boolean) {
+                _isCameraFront.value = isFrontFacing
+            }
+            override fun onCameraSwitchError(errorDescription: String?) {
+                Log.e(TAG, "Camera switch failed: $errorDescription")
+            }
+        })
     }
 
     // ─── WebRTC setup ─────────────────────────────────────────────────────────
 
     private fun createPeerConnection(iceServers: List<PeerConnection.IceServer>) {
-        peerConnectionFactory = PeerConnectionFactory.builder().createPeerConnectionFactory()
+        val factoryBuilder = PeerConnectionFactory.builder()
+        val egl = eglBase
+        if (_isVideoCall.value && egl != null) {
+            factoryBuilder
+                .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl.eglBaseContext, true, true))
+                .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl.eglBaseContext))
+        }
+        peerConnectionFactory = factoryBuilder.createPeerConnectionFactory()
 
         val config = PeerConnection.RTCConfiguration(iceServers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
@@ -349,21 +405,17 @@ class CallManager(
 
             override fun onIceCandidate(candidate: IceCandidate) {
                 val cid = callId ?: return
-                socketManager.emitCallIceCandidate(
-                    cid, candidate.sdp, candidate.sdpMid, candidate.sdpMLineIndex
-                )
+                socketManager.emitCallIceCandidate(cid, candidate.sdp, candidate.sdpMid, candidate.sdpMLineIndex)
             }
 
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
-                Log.d(TAG, "ICE connection state: $state")
+                Log.d(TAG, "ICE: $state")
                 when (state) {
                     PeerConnection.IceConnectionState.CONNECTED,
                     PeerConnection.IceConnectionState.COMPLETED -> {
                         iceRestartAttempts = 0
                         reconnectJob?.cancel()
-                        if (_callState.value == CallState.NEGOTIATING ||
-                            _callState.value == CallState.RECONNECTING
-                        ) {
+                        if (_callState.value == CallState.NEGOTIATING || _callState.value == CallState.RECONNECTING) {
                             _callState.value = CallState.IN_CALL
                             startDurationTimer()
                             startHeartbeat()
@@ -372,19 +424,13 @@ class CallManager(
                     PeerConnection.IceConnectionState.DISCONNECTED -> {
                         if (_callState.value == CallState.IN_CALL) {
                             _callState.value = CallState.RECONNECTING
-                            scheduleReconnect(delayMs = 3000)
+                            scheduleReconnect(3000)
                         }
                     }
                     PeerConnection.IceConnectionState.FAILED -> {
-                        if (_callState.value == CallState.IN_CALL ||
-                            _callState.value == CallState.RECONNECTING
-                        ) {
-                            if (iceRestartAttempts < 2) {
-                                iceRestartAttempts++
-                                restartIce()
-                            } else {
-                                cleanupAndSetIdle("ice_failed")
-                            }
+                        if (_callState.value == CallState.IN_CALL || _callState.value == CallState.RECONNECTING) {
+                            if (iceRestartAttempts < 2) { iceRestartAttempts++; restartIce() }
+                            else cleanupAndSetIdle("ice_failed")
                         }
                     }
                     else -> {}
@@ -392,9 +438,16 @@ class CallManager(
             }
 
             override fun onConnectionChange(state: PeerConnection.PeerConnectionState) {
-                Log.d(TAG, "Peer connection state: $state")
                 if (state == PeerConnection.PeerConnectionState.FAILED) {
                     scope.launch { cleanupAndSetIdle("connection_failed") }
+                }
+            }
+
+            override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {
+                receiver?.track()?.let { track ->
+                    if (track is VideoTrack) {
+                        _remoteVideoTrack.value = track
+                    }
                 }
             }
 
@@ -406,7 +459,6 @@ class CallManager(
             override fun onRemoveStream(stream: MediaStream?) {}
             override fun onDataChannel(dc: DataChannel?) {}
             override fun onRenegotiationNeeded() {}
-            override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {}
         })
     }
 
@@ -427,13 +479,41 @@ class CallManager(
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
     }
 
+    private fun setupLocalVideo() {
+        val factory = peerConnectionFactory ?: return
+        val egl = eglBase ?: return
+
+        val enumerator = Camera2Enumerator(context)
+        val deviceName = enumerator.deviceNames
+            .firstOrNull { enumerator.isFrontFacing(it) }
+            ?: enumerator.deviceNames.firstOrNull()
+            ?: return
+
+        _isCameraFront.value = enumerator.isFrontFacing(deviceName)
+
+        surfaceTextureHelper = SurfaceTextureHelper.create("CameraThread", egl.eglBaseContext)
+        videoSource = factory.createVideoSource(false)
+        cameraCapturer = Camera2Capturer(context, deviceName, null).also { cap ->
+            cap.initialize(surfaceTextureHelper, context, videoSource!!.capturerObserver)
+            cap.startCapture(1280, 720, 30)
+        }
+
+        localVideoTrackObj = factory.createVideoTrack("video0", videoSource).also { track ->
+            track.setEnabled(true)
+            peerConnection?.addTrack(track, listOf("stream0"))
+            _localVideoTrack.value = track
+        }
+        _isVideoEnabled.value = true
+    }
+
     private fun createAndSendOffer() {
         val pc = peerConnection ?: return
         val cid = callId ?: return
+        val isVideo = _isVideoCall.value
 
         val constraints = MediaConstraints().apply {
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", if (isVideo) "true" else "false"))
         }
         pc.createOffer(object : SdpObserver {
             override fun onCreateSuccess(offer: SessionDescription) {
@@ -454,39 +534,34 @@ class CallManager(
         val pc = peerConnection ?: return
         val cid = callId ?: return
         val info = _callInfo.value ?: return
+        if (!info.isOutgoing) return  // callee waits for new offer
 
-        if (info.isOutgoing) {
-            val constraints = MediaConstraints().apply {
-                mandatory.add(MediaConstraints.KeyValuePair("IceRestart", "true"))
-                mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
-            }
-            pc.createOffer(object : SdpObserver {
-                override fun onCreateSuccess(offer: SessionDescription) {
-                    pc.setLocalDescription(NoOpSdpObserver("setLocal(restart)"), offer)
-                    socketManager.emitCallOffer(cid, offer.type.canonicalForm(), offer.description)
-                }
-                override fun onCreateFailure(error: String?) {}
-                override fun onSetSuccess() {}
-                override fun onSetFailure(error: String?) {}
-            }, constraints)
+        val isVideo = _isVideoCall.value
+        val constraints = MediaConstraints().apply {
+            mandatory.add(MediaConstraints.KeyValuePair("IceRestart", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
+            if (isVideo) mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"))
         }
-        // Callee waits for new offer from caller
+        pc.createOffer(object : SdpObserver {
+            override fun onCreateSuccess(offer: SessionDescription) {
+                pc.setLocalDescription(NoOpSdpObserver("setLocal(restart)"), offer)
+                socketManager.emitCallOffer(cid, offer.type.canonicalForm(), offer.description)
+            }
+            override fun onCreateFailure(error: String?) {}
+            override fun onSetSuccess() {}
+            override fun onSetFailure(error: String?) {}
+        }, constraints)
     }
 
     private fun scheduleReconnect(delayMs: Long) {
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
             delay(delayMs)
-            if (_callState.value == CallState.RECONNECTING) {
-                restartIce()
-            }
+            if (_callState.value == CallState.RECONNECTING) restartIce()
         }
-        // Hard timeout
         scope.launch {
             delay(20_000)
-            if (_callState.value == CallState.RECONNECTING) {
-                cleanupAndSetIdle("reconnect_timeout")
-            }
+            if (_callState.value == CallState.RECONNECTING) cleanupAndSetIdle("reconnect_timeout")
         }
     }
 
@@ -500,14 +575,20 @@ class CallManager(
         durationJob?.cancel()
         heartbeatJob?.cancel()
 
-        peerConnection?.dispose()
-        peerConnection = null
-        localAudioTrack?.dispose()
-        localAudioTrack = null
-        audioSource?.dispose()
-        audioSource = null
-        peerConnectionFactory?.dispose()
-        peerConnectionFactory = null
+        // Video cleanup
+        try { cameraCapturer?.stopCapture() } catch (_: Exception) {}
+        cameraCapturer?.dispose(); cameraCapturer = null
+        surfaceTextureHelper?.dispose(); surfaceTextureHelper = null
+        localVideoTrackObj?.dispose(); localVideoTrackObj = null
+        videoSource?.dispose(); videoSource = null
+        _localVideoTrack.value = null
+        _remoteVideoTrack.value = null
+
+        // Audio cleanup
+        peerConnection?.dispose(); peerConnection = null
+        localAudioTrack?.dispose(); localAudioTrack = null
+        audioSource?.dispose(); audioSource = null
+        peerConnectionFactory?.dispose(); peerConnectionFactory = null
 
         pendingOffer = null
         pendingCandidates.clear()
@@ -515,43 +596,39 @@ class CallManager(
 
         releaseAudioFocus()
         audioManager.mode = AudioManager.MODE_NORMAL
-        audioManager.isSpeakerphoneOn = false
+        setSpeakerphoneOn(false)
 
         callId = null
         _callInfo.value = null
         _isMuted.value = false
         _isSpeakerOn.value = false
+        _isVideoEnabled.value = false
+        _isVideoCall.value = false
+        _isCameraFront.value = true
         _durationSec.value = 0L
         _callState.value = CallState.ENDED
 
         stopCallService()
 
-        // Reset to IDLE after brief pause (allows UI to show ended state)
         scope.launch {
             delay(1500)
             _callState.value = CallState.IDLE
         }
     }
 
-    // ─── Duration timer ───────────────────────────────────────────────────────
+    // ─── Timers ───────────────────────────────────────────────────────────────
 
     private fun startDurationTimer() {
         durationJob?.cancel()
         durationJob = scope.launch {
-            while (true) {
-                delay(1000)
-                _durationSec.value++
-            }
+            while (true) { delay(1000); _durationSec.value++ }
         }
     }
 
     private fun startHeartbeat() {
         heartbeatJob?.cancel()
         heartbeatJob = scope.launch {
-            while (true) {
-                delay(15_000)
-                callId?.let { socketManager.emitCallHeartbeat(it) }
-            }
+            while (true) { delay(15_000); callId?.let { socketManager.emitCallHeartbeat(it) } }
         }
     }
 
@@ -585,10 +662,25 @@ class CallManager(
         audioFocusRequest = null
     }
 
+    private fun setSpeakerphoneOn(enabled: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val targetType = if (enabled) AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                             else AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+            audioManager.availableCommunicationDevices
+                .firstOrNull { it.type == targetType }
+                ?.let { audioManager.setCommunicationDevice(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.isSpeakerphoneOn = enabled
+        }
+    }
+
     // ─── Service ──────────────────────────────────────────────────────────────
 
     private fun startCallService() {
-        val intent = Intent(context, CallService::class.java)
+        val intent = Intent(context, CallService::class.java).apply {
+            putExtra("isVideoCall", _isVideoCall.value)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(intent)
         } else {
@@ -600,10 +692,10 @@ class CallManager(
         context.stopService(Intent(context, CallService::class.java))
     }
 
-    // ─── ICE servers ─────────────────────────────────────────────────────────
+    // ─── ICE servers ──────────────────────────────────────────────────────────
 
-    private fun toRtcIceServer(cfg: ru.yakut54.ktoto.data.model.IceServerConfig): PeerConnection.IceServer {
-        return if (cfg.username != null && cfg.credential != null) {
+    private fun toRtcIceServer(cfg: ru.yakut54.ktoto.data.model.IceServerConfig): PeerConnection.IceServer =
+        if (cfg.username != null && cfg.credential != null) {
             PeerConnection.IceServer.builder(cfg.urls)
                 .setUsername(cfg.username)
                 .setPassword(cfg.credential)
@@ -611,7 +703,6 @@ class CallManager(
         } else {
             PeerConnection.IceServer.builder(cfg.urls).createIceServer()
         }
-    }
 
     private fun defaultIceServers(): List<PeerConnection.IceServer> = listOf(
         PeerConnection.IceServer.builder("stun:31.128.39.216:3478").createIceServer(),

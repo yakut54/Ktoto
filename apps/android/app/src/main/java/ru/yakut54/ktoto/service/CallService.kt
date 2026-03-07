@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -41,11 +42,22 @@ class CallService : Service() {
                 // Start foreground with appropriate notification
                 val info = callManager.callInfo.value
                 val state = callManager.callState.value
+                val isVideoCall = intent?.getBooleanExtra("isVideoCall", false) ?: false
                 val notification = buildNotification(
                     peerName = info?.peerName ?: "...",
                     isIncoming = state == CallState.INCOMING_RINGING,
                 )
-                startForeground(NOTIF_ID, notification)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val serviceType = if (isVideoCall) {
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                            ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                    } else {
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                    }
+                    startForeground(NOTIF_ID, notification, serviceType)
+                } else {
+                    startForeground(NOTIF_ID, notification)
+                }
             }
         }
         return START_STICKY

@@ -17,13 +17,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
+import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
-import androidx.compose.material.icons.filled.VolumeOff
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.VideocamOff
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,8 +44,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import coil3.compose.AsyncImage
 import org.koin.androidx.compose.koinViewModel
+import org.webrtc.EglBase
+import org.webrtc.SurfaceViewRenderer
+import org.webrtc.VideoTrack
 import ru.yakut54.ktoto.call.CallState
 
 @Composable
@@ -54,8 +62,13 @@ fun CallScreen(
     val isMuted by vm.isMuted.collectAsState()
     val isSpeakerOn by vm.isSpeakerOn.collectAsState()
     val duration by vm.durationSec.collectAsState()
+    val isVideoCall by vm.isVideoCall.collectAsState()
+    val isVideoEnabled by vm.isVideoEnabled.collectAsState()
+    val isCameraFront by vm.isCameraFront.collectAsState()
+    val localTrack by vm.localVideoTrack.collectAsState()
+    val remoteTrack by vm.remoteVideoTrack.collectAsState()
+    val eglContext = vm.eglBaseContext
 
-    // Navigate back when call is truly idle
     LaunchedEffect(state) {
         if (state == CallState.IDLE) onCallEnded()
     }
@@ -64,53 +77,98 @@ fun CallScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF1A1A2E)),
-        contentAlignment = Alignment.Center,
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(horizontal = 32.dp),
-        ) {
-            Spacer(Modifier.height(80.dp))
-
-            // Avatar
-            AvatarPulse(
-                avatarUrl = info?.peerAvatarUrl,
-                peerName = info?.peerName ?: "",
-                isRinging = state == CallState.INCOMING_RINGING || state == CallState.OUTGOING_RINGING,
+        // ── Remote video (full screen) ──
+        if (isVideoCall && remoteTrack != null && eglContext != null) {
+            SurfaceVideoView(
+                track = remoteTrack!!,
+                eglContext = eglContext,
+                mirror = false,
+                modifier = Modifier.fillMaxSize(),
             )
+        }
 
-            Spacer(Modifier.height(24.dp))
-
-            // Peer name
+        // ── Avatar + name + status (audio call or no remote video yet) ──
+        if (!isVideoCall || remoteTrack == null) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(horizontal = 32.dp)
+                    .padding(top = 80.dp),
+            ) {
+                AvatarPulse(
+                    avatarUrl = info?.peerAvatarUrl,
+                    peerName = info?.peerName ?: "",
+                    isRinging = state == CallState.INCOMING_RINGING || state == CallState.OUTGOING_RINGING,
+                )
+                Spacer(Modifier.height(24.dp))
+                Text(
+                    text = info?.peerName ?: "",
+                    color = Color.White,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        } else {
+            // Overlay peer name on video
             Text(
                 text = info?.peerName ?: "",
                 color = Color.White,
-                fontSize = 28.sp,
+                fontSize = 20.sp,
                 fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 20.dp, top = 56.dp),
             )
+        }
 
-            Spacer(Modifier.height(8.dp))
+        // ── Status text ──
+        AnimatedContent(
+            targetState = state,
+            label = "callStatus",
+            modifier = Modifier
+                .align(if (isVideoCall && remoteTrack != null) Alignment.TopStart else Alignment.Center)
+                .padding(
+                    start = if (isVideoCall && remoteTrack != null) 20.dp else 0.dp,
+                    top = if (isVideoCall && remoteTrack != null) 88.dp else 260.dp,
+                ),
+        ) { s ->
+            Text(
+                text = when (s) {
+                    CallState.OUTGOING_RINGING -> "Вызов..."
+                    CallState.INCOMING_RINGING -> "Входящий звонок"
+                    CallState.NEGOTIATING -> "Соединение..."
+                    CallState.RECONNECTING -> "Восстановление..."
+                    CallState.IN_CALL -> formatDuration(duration)
+                    CallState.ENDED -> "Звонок завершён"
+                    else -> ""
+                },
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = 16.sp,
+            )
+        }
 
-            // Status line
-            AnimatedContent(targetState = state) { s ->
-                Text(
-                    text = when (s) {
-                        CallState.OUTGOING_RINGING -> "Вызов..."
-                        CallState.INCOMING_RINGING -> "Входящий звонок"
-                        CallState.NEGOTIATING -> "Соединение..."
-                        CallState.RECONNECTING -> "Восстановление..."
-                        CallState.IN_CALL -> formatDuration(duration)
-                        CallState.ENDED -> "Звонок завершён"
-                        else -> ""
-                    },
-                    color = Color.White.copy(alpha = 0.7f),
-                    fontSize = 16.sp,
-                )
-            }
+        // ── Local camera PiP (video calls) ──
+        if (isVideoCall && localTrack != null && isVideoEnabled && eglContext != null) {
+            SurfaceVideoView(
+                track = localTrack!!,
+                eglContext = eglContext,
+                mirror = isCameraFront,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 48.dp, end = 12.dp)
+                    .size(width = 96.dp, height = 144.dp)
+                    .clip(RoundedCornerShape(8.dp)),
+            )
+        }
 
-            Spacer(Modifier.weight(1f))
-
-            // Controls
+        // ── Controls ──
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 56.dp),
+        ) {
             when (state) {
                 CallState.INCOMING_RINGING -> {
                     IncomingCallControls(
@@ -119,32 +177,72 @@ fun CallScreen(
                     )
                 }
                 CallState.OUTGOING_RINGING, CallState.NEGOTIATING -> {
-                    // Cancel button only
                     Row(horizontalArrangement = Arrangement.Center) {
                         CallButton(
                             icon = Icons.Default.CallEnd,
                             tint = Color.White,
                             background = Color(0xFFE53935),
-                            onClick = { if (state == CallState.OUTGOING_RINGING) vm.cancelCall() else vm.endCall() },
+                            onClick = {
+                                if (state == CallState.OUTGOING_RINGING) vm.cancelCall() else vm.endCall()
+                            },
                         )
                     }
                 }
                 CallState.IN_CALL, CallState.RECONNECTING -> {
-                    InCallControls(
-                        isMuted = isMuted,
-                        isSpeakerOn = isSpeakerOn,
-                        onMute = { vm.toggleMute() },
-                        onSpeaker = { vm.toggleSpeaker() },
-                        onEnd = { vm.endCall() },
-                    )
+                    if (isVideoCall) {
+                        VideoInCallControls(
+                            isMuted = isMuted,
+                            isVideoEnabled = isVideoEnabled,
+                            isSpeakerOn = isSpeakerOn,
+                            onMute = { vm.toggleMute() },
+                            onVideo = { vm.toggleVideo() },
+                            onSwitchCamera = { vm.switchCamera() },
+                            onSpeaker = { vm.toggleSpeaker() },
+                            onEnd = { vm.endCall() },
+                        )
+                    } else {
+                        InCallControls(
+                            isMuted = isMuted,
+                            isSpeakerOn = isSpeakerOn,
+                            onMute = { vm.toggleMute() },
+                            onSpeaker = { vm.toggleSpeaker() },
+                            onEnd = { vm.endCall() },
+                        )
+                    }
                 }
                 else -> {}
             }
-
-            Spacer(Modifier.height(60.dp))
         }
     }
 }
+
+// ── Video rendering ───────────────────────────────────────────────────────────
+
+@Composable
+private fun SurfaceVideoView(
+    track: VideoTrack,
+    eglContext: EglBase.Context,
+    mirror: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    AndroidView(
+        factory = { ctx ->
+            SurfaceViewRenderer(ctx).apply {
+                init(eglContext, null)
+                setEnableHardwareScaler(true)
+                setMirror(mirror)
+                track.addSink(this)
+            }
+        },
+        modifier = modifier,
+        onRelease = { renderer ->
+            track.removeSink(renderer)
+            renderer.release()
+        },
+    )
+}
+
+// ── Avatar ────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun AvatarPulse(avatarUrl: String?, peerName: String, isRinging: Boolean) {
@@ -157,7 +255,6 @@ private fun AvatarPulse(avatarUrl: String?, peerName: String, isRinging: Boolean
     )
 
     Box(contentAlignment = Alignment.Center) {
-        // Pulse ring
         if (isRinging) {
             Box(
                 Modifier
@@ -167,17 +264,13 @@ private fun AvatarPulse(avatarUrl: String?, peerName: String, isRinging: Boolean
                     .background(Color.White.copy(alpha = 0.15f))
             )
         }
-        // Avatar
         if (!avatarUrl.isNullOrBlank()) {
             AsyncImage(
                 model = avatarUrl,
                 contentDescription = peerName,
-                modifier = Modifier
-                    .size(110.dp)
-                    .clip(CircleShape),
+                modifier = Modifier.size(110.dp).clip(CircleShape),
             )
         } else {
-            // Fallback: initials circle
             Box(
                 Modifier
                     .size(110.dp)
@@ -196,26 +289,13 @@ private fun AvatarPulse(avatarUrl: String?, peerName: String, isRinging: Boolean
     }
 }
 
+// ── Controls ──────────────────────────────────────────────────────────────────
+
 @Composable
 private fun IncomingCallControls(onAccept: () -> Unit, onDecline: () -> Unit) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(60.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // Decline
-        CallButton(
-            icon = Icons.Default.CallEnd,
-            tint = Color.White,
-            background = Color(0xFFE53935),
-            onClick = onDecline,
-        )
-        // Accept
-        CallButton(
-            icon = Icons.Default.Call,
-            tint = Color.White,
-            background = Color(0xFF43A047),
-            onClick = onAccept,
-        )
+    Row(horizontalArrangement = Arrangement.spacedBy(60.dp), verticalAlignment = Alignment.CenterVertically) {
+        CallButton(icon = Icons.Default.CallEnd, tint = Color.White, background = Color(0xFFE53935), onClick = onDecline)
+        CallButton(icon = Icons.Default.Call, tint = Color.White, background = Color(0xFF43A047), onClick = onAccept)
     }
 }
 
@@ -227,34 +307,64 @@ private fun InCallControls(
     onSpeaker: () -> Unit,
     onEnd: () -> Unit,
 ) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(24.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // Mute
+    Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
         CallButton(
             icon = if (isMuted) Icons.Default.MicOff else Icons.Default.Mic,
             tint = if (isMuted) Color.White else Color(0xFF1A1A2E),
             background = if (isMuted) Color(0xFF555580) else Color.White.copy(alpha = 0.9f),
-            size = 56.dp,
-            onClick = onMute,
+            size = 56.dp, onClick = onMute,
         )
-        // End call
+        CallButton(icon = Icons.Default.CallEnd, tint = Color.White, background = Color(0xFFE53935), size = 68.dp, onClick = onEnd)
         CallButton(
-            icon = Icons.Default.CallEnd,
-            tint = Color.White,
-            background = Color(0xFFE53935),
-            size = 68.dp,
-            onClick = onEnd,
-        )
-        // Speaker
-        CallButton(
-            icon = if (isSpeakerOn) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+            icon = if (isSpeakerOn) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
             tint = if (isSpeakerOn) Color.White else Color(0xFF1A1A2E),
             background = if (isSpeakerOn) Color(0xFF555580) else Color.White.copy(alpha = 0.9f),
-            size = 56.dp,
-            onClick = onSpeaker,
+            size = 56.dp, onClick = onSpeaker,
         )
+    }
+}
+
+@Composable
+private fun VideoInCallControls(
+    isMuted: Boolean,
+    isVideoEnabled: Boolean,
+    isSpeakerOn: Boolean,
+    onMute: () -> Unit,
+    onVideo: () -> Unit,
+    onSwitchCamera: () -> Unit,
+    onSpeaker: () -> Unit,
+    onEnd: () -> Unit,
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        // Top row: Mic, Camera, Speaker, SwitchCam
+        Row(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
+            CallButton(
+                icon = if (isMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                tint = if (isMuted) Color.White else Color(0xFF1A1A2E),
+                background = if (isMuted) Color(0xFF555580) else Color.White.copy(alpha = 0.9f),
+                size = 52.dp, onClick = onMute,
+            )
+            CallButton(
+                icon = if (isVideoEnabled) Icons.Default.Videocam else Icons.Default.VideocamOff,
+                tint = if (!isVideoEnabled) Color.White else Color(0xFF1A1A2E),
+                background = if (!isVideoEnabled) Color(0xFF555580) else Color.White.copy(alpha = 0.9f),
+                size = 52.dp, onClick = onVideo,
+            )
+            CallButton(
+                icon = if (isSpeakerOn) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
+                tint = if (isSpeakerOn) Color.White else Color(0xFF1A1A2E),
+                background = if (isSpeakerOn) Color(0xFF555580) else Color.White.copy(alpha = 0.9f),
+                size = 52.dp, onClick = onSpeaker,
+            )
+            CallButton(
+                icon = Icons.Default.Cameraswitch,
+                tint = Color(0xFF1A1A2E),
+                background = Color.White.copy(alpha = 0.9f),
+                size = 52.dp, onClick = onSwitchCamera,
+            )
+        }
+        // End call
+        CallButton(icon = Icons.Default.CallEnd, tint = Color.White, background = Color(0xFFE53935), size = 68.dp, onClick = onEnd)
     }
 }
 
@@ -268,17 +378,9 @@ private fun CallButton(
 ) {
     IconButton(
         onClick = onClick,
-        modifier = Modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(background),
+        modifier = Modifier.size(size).clip(CircleShape).background(background),
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = tint,
-            modifier = Modifier.size(size * 0.45f),
-        )
+        Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = Modifier.size(size * 0.45f))
     }
 }
 

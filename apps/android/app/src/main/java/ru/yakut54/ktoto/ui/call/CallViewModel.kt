@@ -11,6 +11,14 @@ class CallViewModel(private val callManager: CallManager) : ViewModel() {
     val isSpeakerOn = callManager.isSpeakerOn
     val durationSec = callManager.durationSec
 
+    // Video
+    val isVideoCall = callManager.isVideoCall
+    val isVideoEnabled = callManager.isVideoEnabled
+    val isCameraFront = callManager.isCameraFront
+    val localVideoTrack = callManager.localVideoTrackState
+    val remoteVideoTrack = callManager.remoteVideoTrackState
+    val eglBaseContext get() = callManager.eglBaseContext
+
     fun startCall(peerId: String, peerName: String, peerAvatarUrl: String?, callType: String = "audio") =
         callManager.startCall(peerId, peerName, peerAvatarUrl, callType)
 
@@ -20,4 +28,6 @@ class CallViewModel(private val callManager: CallManager) : ViewModel() {
     fun cancelCall() = callManager.cancelCall()
     fun toggleMute() = callManager.toggleMute()
     fun toggleSpeaker() = callManager.toggleSpeaker()
+    fun toggleVideo() = callManager.toggleVideo()
+    fun switchCamera() = callManager.switchCamera()
 }
