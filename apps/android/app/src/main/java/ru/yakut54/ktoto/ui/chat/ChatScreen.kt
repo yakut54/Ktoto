@@ -1848,13 +1848,14 @@ private fun MessageBubble(
 private fun ImageBubble(message: Message, isMine: Boolean, bubbleColor: Color, textColor: Color, onLongClick: () -> Unit = {}) {
     val att = message.attachment
     var showFullscreen by remember { mutableStateOf(false) }
+    val hasCaption = !message.content.isNullOrBlank()
     val shape = RoundedCornerShape(
         topStart = 18.dp, topEnd = 18.dp,
         bottomStart = if (isMine) 18.dp else 4.dp,
         bottomEnd = if (isMine) 4.dp else 18.dp,
     )
 
-    Box(
+    Column(
         modifier = Modifier
             .widthIn(max = 280.dp)
             .clip(shape)
@@ -1864,37 +1865,54 @@ private fun ImageBubble(message: Message, isMine: Boolean, bubbleColor: Color, t
                 onLongClick = onLongClick,
             ),
     ) {
-        val imageUrl = att?.thumbnailUrl ?: att?.url
-        if (imageUrl != null) {
-            val ratio = if (att?.width != null && att.height != null && att.width > 0)
-                att.width.toFloat() / att.height.toFloat() else 1f
-            AsyncImage(
-                model = imageUrl,
-                contentDescription = "Фото",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxWidth().aspectRatio(ratio.coerceIn(0.5f, 2f)),
-            )
-        } else {
-            Box(
-                Modifier.size(200.dp, 150.dp).background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
-            ) { CircularProgressIndicator() }
+        // ── Photo ──────────────────────────────────────────────────────
+        Box {
+            val imageUrl = att?.thumbnailUrl ?: att?.url
+            if (imageUrl != null) {
+                val ratio = if (att?.width != null && att.height != null && att.width > 0)
+                    att.width.toFloat() / att.height.toFloat() else 1f
+                AsyncImage(
+                    model = imageUrl,
+                    contentDescription = "Фото",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxWidth().aspectRatio(ratio.coerceIn(0.5f, 2f)),
+                )
+            } else {
+                Box(
+                    Modifier.size(200.dp, 150.dp).background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
+                ) { CircularProgressIndicator() }
+            }
+            // Timestamp overlay — only when no caption
+            if (!hasCaption) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(4.dp)
+                        .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Text(text = formatMessageTime(message.createdAt), fontSize = 10.sp, color = Color.White)
+                    if (isMine) { DeliveryIcon(message, Color.White) }
+                }
+            }
         }
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(4.dp)
-                .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
-                .padding(horizontal = 4.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-            Text(
-                text = formatMessageTime(message.createdAt),
-                fontSize = 10.sp,
-                color = Color.White,
-            )
-            if (isMine) { DeliveryIcon(message, Color.White) }
+
+        // ── Caption + timestamp (when caption exists) ──────────────────
+        if (hasCaption) {
+            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                Text(text = message.content!!, color = textColor, fontSize = 14.sp)
+                Row(
+                    modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(text = formatMessageTime(message.createdAt), fontSize = 10.sp, color = textColor.copy(alpha = 0.6f))
+                    if (isMine) { DeliveryIcon(message, textColor) }
+                }
+            }
         }
     }
 
