@@ -78,9 +78,10 @@ fun ConversationsScreen(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { /* permissions saved by OS — no action needed */ }
 
-    // Request call permissions once after login so calls start without interruption
+    // Request microphone permission once after login so audio calls start without interruption.
+    // CAMERA is intentionally excluded — it will be requested on demand when starting a video call.
     LaunchedEffect(Unit) {
-        val needed = listOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA)
+        val needed = listOf(Manifest.permission.RECORD_AUDIO)
             .filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
         if (needed.isNotEmpty()) callPermLauncher.launch(needed.toTypedArray())
     }

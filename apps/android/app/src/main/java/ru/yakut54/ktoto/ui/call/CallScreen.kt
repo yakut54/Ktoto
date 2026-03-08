@@ -155,6 +155,7 @@ fun CallScreen(
                 track = localTrack!!,
                 eglContext = eglContext,
                 mirror = isCameraFront,
+                isOnTop = true,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(top = 48.dp, end = 12.dp)
@@ -223,6 +224,7 @@ private fun SurfaceVideoView(
     track: VideoTrack,
     eglContext: EglBase.Context,
     mirror: Boolean,
+    isOnTop: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     AndroidView(
@@ -232,6 +234,7 @@ private fun SurfaceVideoView(
                     renderer.init(eglContext, null)
                     renderer.setEnableHardwareScaler(true)
                     renderer.setMirror(mirror)
+                    if (isOnTop) renderer.setZOrderMediaOverlay(true)
                     track.addSink(renderer)
                 } catch (e: Exception) {
                     android.util.Log.e("SurfaceVideoView", "init failed: ${e.message}", e)

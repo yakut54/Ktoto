@@ -7,6 +7,8 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -19,7 +21,9 @@ import ru.yakut54.ktoto.call.CallState
 class CallService : Service() {
 
     companion object {
-        const val CHANNEL_ID = "ktoto_calls"
+        const val CHANNEL_ID = "ktoto_calls"          // legacy (kept for compat)
+        const val CHANNEL_RING_ID = "ktoto_calls_ring"   // incoming — ringtone + vibration
+        const val CHANNEL_ACTIVE_ID = "ktoto_calls_active" // in-call — silent
         const val NOTIF_ID = 1002
         const val ACTION_ACCEPT = "ru.yakut54.ktoto.CALL_ACCEPT"
         const val ACTION_DECLINE = "ru.yakut54.ktoto.CALL_DECLINE"
@@ -76,7 +80,8 @@ class CallService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+        val channelId = if (isIncoming) CHANNEL_RING_ID else CHANNEL_ACTIVE_ID
+        val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(openIntent)
             .setOngoing(true)
@@ -125,15 +130,40 @@ class CallService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Звонки",
+            val nm = getSystemService(NotificationManager::class.java)
+
+            // Incoming call channel — ringtone + vibration
+            val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+            val audioAttr = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            val ringChannel = NotificationChannel(
+                CHANNEL_RING_ID,
+                "Входящие звонки",
                 NotificationManager.IMPORTANCE_HIGH,
             ).apply {
-                description = "Уведомления о звонках"
+                description = "Уведомления о входящих звонках"
                 setShowBadge(false)
+                setSound(ringtoneUri, audioAttr)
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 1000, 500, 1000)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+            nm.createNotificationChannel(ringChannel)
+
+            // Active call channel — silent
+            val activeChannel = NotificationChannel(
+                CHANNEL_ACTIVE_ID,
+                "Активный звонок",
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = "Уведомление активного звонка"
+                setShowBadge(false)
+                setSound(null, null)
+                enableVibration(false)
+            }
+            nm.createNotificationChannel(activeChannel)
         }
     }
 }
