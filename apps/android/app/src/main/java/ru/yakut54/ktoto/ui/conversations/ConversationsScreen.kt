@@ -1,5 +1,9 @@
 package ru.yakut54.ktoto.ui.conversations
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -39,10 +43,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -66,6 +72,18 @@ fun ConversationsScreen(
     val username by vm.username.collectAsState()
     val onlineUsers by vm.onlineUsers.collectAsState()
     val typingConvIds by vm.typingConvIds.collectAsState()
+
+    val context = LocalContext.current
+    val callPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { /* permissions saved by OS — no action needed */ }
+
+    // Request call permissions once after login so calls start without interruption
+    LaunchedEffect(Unit) {
+        val needed = listOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA)
+            .filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
+        if (needed.isNotEmpty()) callPermLauncher.launch(needed.toTypedArray())
+    }
 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle) {
