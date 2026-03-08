@@ -215,6 +215,14 @@ fun ChatScreen(
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
     }
 
+    // Scroll to last message when keyboard opens so it's not hidden behind the IME
+    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    LaunchedEffect(imeVisible) {
+        if (imeVisible && messages.isNotEmpty()) {
+            listState.scrollToItem(messages.lastIndex)
+        }
+    }
+
     // Sync edit mode: populate text field with message content
     var text by remember { mutableStateOf("") }
     LaunchedEffect(editingMessage) {
