@@ -39,7 +39,10 @@ class CallService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_ACCEPT -> callManager.acceptCall()
+            ACTION_ACCEPT -> {
+                callManager.acceptCall()
+                switchToActiveNotification()
+            }
             ACTION_DECLINE -> callManager.rejectCall()
             ACTION_END -> callManager.endCall()
             else -> {
@@ -126,6 +129,16 @@ class CallService : Service() {
         }
 
         return builder.build()
+    }
+
+    /** Stop the ringing notification and post a silent active-call one. */
+    private fun switchToActiveNotification() {
+        val peerName = callManager.callInfo.value?.peerName ?: "..."
+        val activeNotif = buildNotification(peerName = peerName, isIncoming = false)
+        // stopForeground removes the old notification (with ringtone channel), then
+        // startForeground re-attaches with the new silent channel notification.
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        startForeground(NOTIF_ID, activeNotif)
     }
 
     private fun createNotificationChannel() {

@@ -7,6 +7,7 @@ import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
+import android.os.PowerManager
 import android.util.Log
 import ru.yakut54.ktoto.utils.CallLogger
 import kotlinx.coroutines.CompletableDeferred
@@ -149,6 +150,24 @@ class CallManager(
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null
 
+    // ─── WakeLock (keeps CPU alive + wakes screen for incoming calls) ─────────
+
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    private fun acquireWakeLock() {
+        val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock?.let { if (it.isHeld) it.release() }
+        wakeLock = pm.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+            "ktoto:incoming_call",
+        ).also { it.acquire(60_000L) }
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.let { if (it.isHeld) it.release() }
+        wakeLock = null
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
 
     fun init() {
@@ -270,6 +289,7 @@ class CallManager(
         )
         setState(CallState.INCOMING_RINGING)
 
+        acquireWakeLock()
         socketManager.emitCallRinging(event.callId)
         startCallService()
 
@@ -656,6 +676,7 @@ class CallManager(
     @Synchronized
     private fun cleanupAndSetIdle(reason: String) {
         Log.d(TAG, "Call cleanup, reason=$reason")
+        releaseWakeLock()
         ringTimeoutJob?.cancel()
         reconnectJob?.cancel()
         durationJob?.cancel()
