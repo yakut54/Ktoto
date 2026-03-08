@@ -215,17 +215,26 @@ class CallManager(
         _callInfo.value = _callInfo.value?.copy(callId = servCallId)
 
         scope.launch {
+            Log.i(TAG, ">>> onCallInitiated [1] awaiting webRtcReady")
             runCatching { webRtcReady.await() }.onFailure {
                 Log.e(TAG, "onCallInitiated: WebRTC init failed, aborting"); cleanupAndSetIdle("init_failed"); return@launch
             }
+            Log.i(TAG, ">>> onCallInitiated [2] webRtcReady — getting token")
             val token = tokenStore.getAccessToken() ?: run { Log.e(TAG, "onCallInitiated: no token"); return@launch }
+            Log.i(TAG, ">>> onCallInitiated [3] got token — fetching TURN")
             val iceServers = runCatching { apiService.getTurnCredentials("Bearer $token").iceServers }
-                .onSuccess { Log.d(TAG, "TURN: got ${it.size} ICE servers") }
-                .onFailure { Log.w(TAG, "TURN fetch failed, using defaults: ${it.message}") }
+                .onSuccess { Log.i(TAG, ">>> onCallInitiated [4] TURN: got ${it.size} ICE servers") }
+                .onFailure { Log.w(TAG, ">>> onCallInitiated [4] TURN fetch failed, using defaults: ${it.message}") }
                 .getOrNull()
+            Log.i(TAG, ">>> onCallInitiated [5] createPeerConnection")
             createPeerConnection(iceServers?.map { toRtcIceServer(it) } ?: defaultIceServers())
+            Log.i(TAG, ">>> onCallInitiated [6] setupLocalAudio, pc=${peerConnection != null}")
             setupLocalAudio()
-            if (_isVideoCall.value) setupLocalVideo()
+            if (_isVideoCall.value) {
+                Log.i(TAG, ">>> onCallInitiated [7] setupLocalVideo")
+                setupLocalVideo()
+            }
+            Log.i(TAG, ">>> onCallInitiated [8] createAndSendOffer")
             createAndSendOffer()
         }
     }
@@ -278,16 +287,21 @@ class CallManager(
         ringTimeoutJob?.cancel()
 
         scope.launch {
+            Log.i(TAG, ">>> acceptCall [1] awaiting webRtcReady")
             runCatching { webRtcReady.await() }.onFailure {
                 Log.e(TAG, "acceptCall: WebRTC init failed, aborting"); cleanupAndSetIdle("init_failed"); return@launch
             }
+            Log.i(TAG, ">>> acceptCall [2] webRtcReady — getting TURN")
             val token = tokenStore.getAccessToken() ?: return@launch
             val iceServers = runCatching { apiService.getTurnCredentials("Bearer $token").iceServers }.getOrNull()
+            Log.i(TAG, ">>> acceptCall [3] createPeerConnection")
             createPeerConnection(iceServers?.map { toRtcIceServer(it) } ?: defaultIceServers())
+            Log.i(TAG, ">>> acceptCall [4] setupLocalAudio, pc=${peerConnection != null}")
             setupLocalAudio()
             if (_isVideoCall.value) setupLocalVideo()
 
             val offer = pendingOffer
+            Log.i(TAG, ">>> acceptCall [5] pendingOffer=${offer != null}, applyingAnswer")
             if (offer != null) {
                 applyOfferAndAnswer(cid, offer)
             }
@@ -427,6 +441,7 @@ class CallManager(
     // ─── WebRTC setup ─────────────────────────────────────────────────────────
 
     private fun createPeerConnection(iceServers: List<PeerConnection.IceServer>) {
+        Log.i(TAG, "createPeerConnection: isVideo=${_isVideoCall.value} iceServers=${iceServers.size}")
         val factoryBuilder = PeerConnectionFactory.builder()
         val egl = eglBase
         if (_isVideoCall.value && egl != null) {
@@ -435,6 +450,7 @@ class CallManager(
                 .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl.eglBaseContext))
         }
         peerConnectionFactory = factoryBuilder.createPeerConnectionFactory()
+        Log.i(TAG, "createPeerConnection: factory created=${peerConnectionFactory != null}")
 
         val config = PeerConnection.RTCConfiguration(iceServers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
@@ -443,6 +459,7 @@ class CallManager(
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
         }
 
+        Log.i(TAG, "createPeerConnection: creating PeerConnection with ${iceServers.size} ICE servers")
         peerConnection = peerConnectionFactory!!.createPeerConnection(config, object : PeerConnection.Observer {
 
             override fun onIceCandidate(candidate: IceCandidate) {
@@ -503,6 +520,7 @@ class CallManager(
             override fun onDataChannel(dc: DataChannel?) {}
             override fun onRenegotiationNeeded() {}
         })
+        Log.i(TAG, "createPeerConnection: PC created=${peerConnection != null}")
     }
 
     private fun setupLocalAudio() {
@@ -550,8 +568,9 @@ class CallManager(
     }
 
     private fun createAndSendOffer() {
-        val pc = peerConnection ?: return
-        val cid = callId ?: return
+        val pc = peerConnection ?: run { Log.e(TAG, "createAndSendOffer: peerConnection is NULL"); return }
+        val cid = callId ?: run { Log.e(TAG, "createAndSendOffer: callId is NULL"); return }
+        Log.i(TAG, "createAndSendOffer: creating offer for callId=$cid")
         val isVideo = _isVideoCall.value
 
         val constraints = MediaConstraints().apply {
