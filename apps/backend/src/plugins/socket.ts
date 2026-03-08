@@ -316,7 +316,7 @@ function registerCallHandlers(
       pushCallToUser(
         (sql, params) => app.pg.query(sql, params as unknown[]),
         toUserId,
-        { callId: call.id, fromUsername: caller.username, fromAvatarUrl: caller.avatar_url, callType },
+        { callId: call.id, fromUserId: userId, fromUsername: caller.username, fromAvatarUrl: caller.avatar_url, callType },
       ).catch(() => {})
 
       // Confirm to caller
@@ -348,6 +348,9 @@ function registerCallHandlers(
         const updated = { ...call, state: 'negotiating' as CallState }
         await saveCall(redis, updated)
       }
+
+      // Buffer SDP so FCM-woken callee can receive it on reconnect (60s TTL)
+      await redis.set(`call_offer:${call.id}`, JSON.stringify(data.sdp), 'EX', 60)
 
       app.log.info({ callId: call.id, toUserId: call.calleeId }, 'call_offer → forwarded to callee')
       serverLog('call_offer_forwarded', { callId: call.id, from: userId, toUserId: call.calleeId })
@@ -653,6 +656,29 @@ export const socketPlugin = fp(async (app: FastifyInstance) => {
           callId: maybeStaleCall.id,
           reason: 'caller_reconnected',
         })
+      } else if (
+        (maybeStaleCall.state === 'ringing' || maybeStaleCall.state === 'negotiating') &&
+        maybeStaleCall.calleeId === userId
+      ) {
+        // Callee reconnected after FCM woke the device — re-deliver call_incoming
+        app.log.info({ callId: maybeStaleCall.id, userId, state: maybeStaleCall.state }, 'Re-emitting call_incoming to FCM-woken callee')
+        const { rows } = await app.pg.query<{ username: string; avatar_url: string | null }>(
+          'SELECT username, avatar_url FROM users WHERE id=$1',
+          [maybeStaleCall.callerId],
+        )
+        const caller = rows[0]
+        socket.emit('call_incoming', {
+          callId: maybeStaleCall.id,
+          fromUserId: maybeStaleCall.callerId,
+          fromUsername: caller?.username ?? 'Unknown',
+          fromAvatarUrl: caller?.avatar_url ?? null,
+          callType: maybeStaleCall.callType,
+        })
+        // Also resend buffered offer if caller already sent it
+        const offerRaw = await app.redis.get(`call_offer:${maybeStaleCall.id}`)
+        if (offerRaw) {
+          socket.emit('call_offer', { callId: maybeStaleCall.id, sdp: JSON.parse(offerRaw) })
+        }
       } else {
         socket.emit('call_state_confirmed', { call: maybeStaleCall })
       }

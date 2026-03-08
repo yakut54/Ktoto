@@ -7,6 +7,7 @@ export async function pushCallToUser(
   userId: string,
   data: {
     callId: string
+    fromUserId: string
     fromUsername: string
     fromAvatarUrl: string | null
     callType: string
@@ -21,6 +22,7 @@ export async function pushCallToUser(
       data: {
         type: 'incoming_call',
         callId: data.callId,
+        fromUserId: data.fromUserId,
         fromUsername: data.fromUsername,
         fromAvatarUrl: data.fromAvatarUrl || '',
         callType: data.callType,

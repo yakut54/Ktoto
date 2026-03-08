@@ -2,7 +2,6 @@ package ru.yakut54.ktoto.ui.conversations
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -79,21 +78,10 @@ fun ConversationsScreen(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { /* результат сохранён ОС */ }
 
-    // Запрашиваем все нужные пермишны сразу после входа
+    // Запрашиваем пермишны на микрофон и камеру сразу после входа
     LaunchedEffect(Unit) {
-        val perms = buildList {
-            add(Manifest.permission.RECORD_AUDIO)
-            add(Manifest.permission.CAMERA)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-                add(Manifest.permission.BLUETOOTH_CONNECT)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                add(Manifest.permission.READ_MEDIA_IMAGES)
-                add(Manifest.permission.READ_MEDIA_VIDEO)
-            } else {
-                @Suppress("DEPRECATION")
-                add(Manifest.permission.READ_EXTERNAL_STORAGE)
-            }
-        }.filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
+        val perms = listOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA)
+            .filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
         if (perms.isNotEmpty()) permLauncher.launch(perms.toTypedArray())
     }
 
