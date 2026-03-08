@@ -157,14 +157,10 @@ class CallManager(
     private fun acquireWakeLock() {
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock?.let { if (it.isHeld) it.release() }
-        // ACQUIRE_CAUSES_WAKEUP deprecated API 33+ — screen wake handled by
-        // setTurnScreenOn(true) in MainActivity; PARTIAL_WAKE_LOCK keeps CPU alive.
-        val flags = if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
-            @Suppress("DEPRECATION")
-            PowerManager.PARTIAL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP
-        } else {
-            PowerManager.PARTIAL_WAKE_LOCK
-        }
+        // ACQUIRE_CAUSES_WAKEUP is deprecated in API 33 but still functional —
+        // needed to physically turn the screen on when a call arrives while sleeping.
+        @Suppress("DEPRECATION")
+        val flags = PowerManager.PARTIAL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP
         wakeLock = pm.newWakeLock(flags, "ktoto:incoming_call").also { it.acquire(60_000L) }
     }
 
