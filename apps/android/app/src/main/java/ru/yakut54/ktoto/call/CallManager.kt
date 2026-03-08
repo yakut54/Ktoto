@@ -8,6 +8,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
 import android.util.Log
+import ru.yakut54.ktoto.utils.CallLogger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -153,16 +154,17 @@ class CallManager(
     fun init() {
         scope.launch(Dispatchers.IO) {
             runCatching {
+                CallLogger.i(TAG, "WebRTC init START", "device" to CallLogger.deviceId)
                 PeerConnectionFactory.initialize(
                     PeerConnectionFactory.InitializationOptions.builder(context)
                         .setEnableInternalTracer(false)
                         .createInitializationOptions()
                 )
                 eglBase = EglBase.create()
-                Log.i(TAG, "WebRTC initialized OK")
+                CallLogger.i(TAG, "WebRTC init OK")
                 webRtcReady.complete(Unit)
             }.onFailure {
-                Log.e(TAG, "WebRTC init FAILED: ${it.message}", it)
+                CallLogger.e(TAG, "WebRTC init FAILED: ${it.message}")
                 webRtcReady.completeExceptionally(it)
             }
         }
@@ -179,7 +181,7 @@ class CallManager(
     }
 
     private fun setState(newState: CallState) {
-        Log.i(TAG, "STATE: ${_callState.value} → $newState")
+        CallLogger.i(TAG, "STATE ${_callState.value} → $newState", "callId" to callId)
         _callState.value = newState
     }
 
@@ -187,7 +189,7 @@ class CallManager(
 
     fun startCall(peerId: String, peerName: String, peerAvatarUrl: String?, callType: String) {
         if (_callState.value != CallState.IDLE) { Log.w(TAG, "startCall ignored — state=${_callState.value}"); return }
-        Log.i(TAG, ">>> startCall peerId=$peerId callType=$callType")
+        CallLogger.i(TAG, "startCall", "peerId" to peerId, "callType" to callType)
 
         _isVideoCall.value = callType == "video"
         _callInfo.value = CallInfo(
@@ -209,42 +211,42 @@ class CallManager(
     }
 
     private fun onCallInitiated(servCallId: String) {
-        if (_callState.value != CallState.OUTGOING_RINGING) { Log.w(TAG, "onCallInitiated ignored — state=${_callState.value}"); return }
-        Log.i(TAG, ">>> call_initiated callId=$servCallId — fetching TURN + creating offer")
+        if (_callState.value != CallState.OUTGOING_RINGING) { CallLogger.w(TAG, "onCallInitiated ignored", "state" to _callState.value); return }
+        CallLogger.i(TAG, "onCallInitiated", "callId" to servCallId)
         callId = servCallId
         _callInfo.value = _callInfo.value?.copy(callId = servCallId)
 
         scope.launch {
-            Log.i(TAG, ">>> onCallInitiated [1] awaiting webRtcReady")
+            CallLogger.i(TAG, "onCallInitiated [1] await webRtcReady")
             runCatching { webRtcReady.await() }.onFailure {
-                Log.e(TAG, "onCallInitiated: WebRTC init failed, aborting"); cleanupAndSetIdle("init_failed"); return@launch
+                CallLogger.e(TAG, "onCallInitiated: WebRTC init FAILED"); cleanupAndSetIdle("init_failed"); return@launch
             }
-            Log.i(TAG, ">>> onCallInitiated [2] webRtcReady — getting token")
-            val token = tokenStore.getAccessToken() ?: run { Log.e(TAG, "onCallInitiated: no token"); return@launch }
-            Log.i(TAG, ">>> onCallInitiated [3] got token — fetching TURN")
+            CallLogger.i(TAG, "onCallInitiated [2] getToken")
+            val token = tokenStore.getAccessToken() ?: run { CallLogger.e(TAG, "onCallInitiated: no token"); return@launch }
+            CallLogger.i(TAG, "onCallInitiated [3] fetchTURN")
             val iceServers = runCatching { apiService.getTurnCredentials("Bearer $token").iceServers }
-                .onSuccess { Log.i(TAG, ">>> onCallInitiated [4] TURN: got ${it.size} ICE servers") }
-                .onFailure { Log.w(TAG, ">>> onCallInitiated [4] TURN fetch failed, using defaults: ${it.message}") }
+                .onSuccess { CallLogger.i(TAG, "onCallInitiated [4] TURN ok", "count" to it.size) }
+                .onFailure { CallLogger.w(TAG, "onCallInitiated [4] TURN failed, using defaults", "err" to it.message) }
                 .getOrNull()
-            Log.i(TAG, ">>> onCallInitiated [5] createPeerConnection")
+            CallLogger.i(TAG, "onCallInitiated [5] createPeerConnection")
             createPeerConnection(iceServers?.map { toRtcIceServer(it) } ?: defaultIceServers())
-            Log.i(TAG, ">>> onCallInitiated [6] setupLocalAudio, pc=${peerConnection != null}")
+            CallLogger.i(TAG, "onCallInitiated [6] setupLocalAudio", "pc" to (peerConnection != null))
             setupLocalAudio()
             if (_isVideoCall.value) {
-                Log.i(TAG, ">>> onCallInitiated [7] setupLocalVideo")
+                CallLogger.i(TAG, "onCallInitiated [7] setupLocalVideo")
                 setupLocalVideo()
             }
-            Log.i(TAG, ">>> onCallInitiated [8] createAndSendOffer")
+            CallLogger.i(TAG, "onCallInitiated [8] createAndSendOffer")
             createAndSendOffer()
         }
     }
 
     private fun onCallRinging() {
-        Log.i(TAG, ">>> call_ringing — remote device is ringing")
+        CallLogger.i(TAG, "call_ringing — callee is ringing", "callId" to callId)
     }
 
     fun cancelCall() {
-        Log.i(TAG, ">>> cancelCall callId=$callId")
+        CallLogger.i(TAG, "cancelCall", "callId" to callId)
         callId?.let { socketManager.emitCallCancel(it) }
         cleanupAndSetIdle("cancelled")
     }
@@ -252,9 +254,9 @@ class CallManager(
     // ─── Incoming call ────────────────────────────────────────────────────────
 
     private fun onCallIncoming(event: IncomingCallEvent) {
-        Log.i(TAG, ">>> call_incoming callId=${event.callId} from=${event.fromUsername} type=${event.callType} state=${_callState.value}")
+        CallLogger.i(TAG, "call_incoming", "callId" to event.callId, "from" to event.fromUsername, "type" to event.callType, "state" to _callState.value)
         if (_callState.value != CallState.IDLE) {
-            Log.w(TAG, "Auto-reject: already in state ${_callState.value}")
+            CallLogger.w(TAG, "call_incoming auto-reject: busy", "state" to _callState.value)
             socketManager.emitCallReject(event.callId)
             return
         }
@@ -280,42 +282,47 @@ class CallManager(
     }
 
     fun acceptCall() {
-        val cid = callId ?: run { Log.e(TAG, "acceptCall: no callId"); return }
-        if (_callState.value != CallState.INCOMING_RINGING) { Log.w(TAG, "acceptCall ignored — state=${_callState.value}"); return }
-        Log.i(TAG, ">>> acceptCall callId=$cid")
+        val cid = callId ?: run { CallLogger.e(TAG, "acceptCall: no callId"); return }
+        if (_callState.value != CallState.INCOMING_RINGING) { CallLogger.w(TAG, "acceptCall ignored", "state" to _callState.value); return }
+        CallLogger.i(TAG, "acceptCall", "callId" to cid)
         setState(CallState.NEGOTIATING)
         ringTimeoutJob?.cancel()
 
         scope.launch {
-            Log.i(TAG, ">>> acceptCall [1] awaiting webRtcReady")
+            CallLogger.i(TAG, "acceptCall [1] await webRtcReady")
             runCatching { webRtcReady.await() }.onFailure {
-                Log.e(TAG, "acceptCall: WebRTC init failed, aborting"); cleanupAndSetIdle("init_failed"); return@launch
+                CallLogger.e(TAG, "acceptCall: WebRTC init FAILED"); cleanupAndSetIdle("init_failed"); return@launch
             }
-            Log.i(TAG, ">>> acceptCall [2] webRtcReady — getting TURN")
-            val token = tokenStore.getAccessToken() ?: return@launch
-            val iceServers = runCatching { apiService.getTurnCredentials("Bearer $token").iceServers }.getOrNull()
-            Log.i(TAG, ">>> acceptCall [3] createPeerConnection")
+            CallLogger.i(TAG, "acceptCall [2] fetchTURN")
+            val token = tokenStore.getAccessToken() ?: run { CallLogger.e(TAG, "acceptCall: no token"); return@launch }
+            val iceServers = runCatching { apiService.getTurnCredentials("Bearer $token").iceServers }
+                .onSuccess { CallLogger.i(TAG, "acceptCall TURN ok", "count" to it.size) }
+                .onFailure { CallLogger.w(TAG, "acceptCall TURN failed, defaults", "err" to it.message) }
+                .getOrNull()
+            CallLogger.i(TAG, "acceptCall [3] createPeerConnection")
             createPeerConnection(iceServers?.map { toRtcIceServer(it) } ?: defaultIceServers())
-            Log.i(TAG, ">>> acceptCall [4] setupLocalAudio, pc=${peerConnection != null}")
+            CallLogger.i(TAG, "acceptCall [4] setupLocalAudio", "pc" to (peerConnection != null))
             setupLocalAudio()
-            if (_isVideoCall.value) setupLocalVideo()
+            if (_isVideoCall.value) { CallLogger.i(TAG, "acceptCall [4b] setupLocalVideo"); setupLocalVideo() }
 
             val offer = pendingOffer
-            Log.i(TAG, ">>> acceptCall [5] pendingOffer=${offer != null}, applyingAnswer")
+            CallLogger.i(TAG, "acceptCall [5] pendingOffer=${offer != null}")
             if (offer != null) {
                 applyOfferAndAnswer(cid, offer)
+            } else {
+                CallLogger.w(TAG, "acceptCall: no pendingOffer yet — will handle in onCallOffer")
             }
         }
     }
 
     fun rejectCall() {
-        Log.i(TAG, ">>> rejectCall callId=$callId")
+        CallLogger.i(TAG, "rejectCall", "callId" to callId)
         callId?.let { socketManager.emitCallReject(it) }
         cleanupAndSetIdle("rejected")
     }
 
     private fun onCallOffer(incomingCallId: String, type: String, sdpStr: String) {
-        Log.i(TAG, ">>> call_offer received callId=$incomingCallId state=${_callState.value}")
+        CallLogger.i(TAG, "onCallOffer", "callId" to incomingCallId, "state" to _callState.value)
         val cid = callId ?: return
         if (incomingCallId != cid) return
 
@@ -339,11 +346,12 @@ class CallManager(
         }
         pc.createAnswer(object : SdpObserver {
             override fun onCreateSuccess(answer: SessionDescription) {
+                CallLogger.i(TAG, "SDP answer created, sending", "callId" to cid)
                 pc.setLocalDescription(NoOpSdpObserver("setLocal(answer)"), answer)
                 socketManager.emitCallAnswer(cid, answer.type.canonicalForm(), answer.description)
             }
             override fun onCreateFailure(error: String?) {
-                Log.e(TAG, "createAnswer failed: $error")
+                CallLogger.e(TAG, "createAnswer FAILED", "err" to error)
                 cleanupAndSetIdle("answer_failed")
             }
             override fun onSetSuccess() {}
@@ -352,10 +360,10 @@ class CallManager(
     }
 
     private fun onCallAnswer(incomingCallId: String, type: String, sdpStr: String) {
-        Log.i(TAG, ">>> call_answer received callId=$incomingCallId")
-        val cid = callId ?: run { Log.e(TAG, "onCallAnswer: no local callId"); return }
-        if (incomingCallId != cid) { Log.w(TAG, "onCallAnswer: id mismatch $incomingCallId != $cid"); return }
-        val pc = peerConnection ?: run { Log.e(TAG, "onCallAnswer: no PeerConnection"); return }
+        CallLogger.i(TAG, "onCallAnswer", "callId" to incomingCallId)
+        val cid = callId ?: run { CallLogger.e(TAG, "onCallAnswer: no local callId"); return }
+        if (incomingCallId != cid) { CallLogger.w(TAG, "onCallAnswer: id mismatch", "got" to incomingCallId, "local" to cid); return }
+        val pc = peerConnection ?: run { CallLogger.e(TAG, "onCallAnswer: no PeerConnection"); return }
 
         val sdp = SessionDescription(SessionDescription.Type.fromCanonicalForm(type), sdpStr)
         pc.setRemoteDescription(NoOpSdpObserver("setRemote(answer)"), sdp)
@@ -389,14 +397,14 @@ class CallManager(
     // ─── End call ─────────────────────────────────────────────────────────────
 
     fun endCall() {
-        Log.i(TAG, ">>> endCall callId=$callId duration=${_durationSec.value}s")
+        CallLogger.i(TAG, "endCall", "callId" to callId, "duration" to _durationSec.value)
         val cid = callId ?: run { cleanupAndSetIdle("ended"); return }
         socketManager.emitCallEnd(cid, _durationSec.value)
         cleanupAndSetIdle("ended")
     }
 
     private fun onCallTerminated(reason: String) {
-        Log.i(TAG, ">>> call terminated reason=$reason state=${_callState.value}")
+        CallLogger.i(TAG, "call terminated", "reason" to reason, "state" to _callState.value)
         if (_callState.value == CallState.IDLE) return
         cleanupAndSetIdle(reason)
     }
@@ -441,7 +449,7 @@ class CallManager(
     // ─── WebRTC setup ─────────────────────────────────────────────────────────
 
     private fun createPeerConnection(iceServers: List<PeerConnection.IceServer>) {
-        Log.i(TAG, "createPeerConnection: isVideo=${_isVideoCall.value} iceServers=${iceServers.size}")
+        CallLogger.i(TAG, "createPeerConnection", "isVideo" to _isVideoCall.value, "iceServers" to iceServers.size)
         val factoryBuilder = PeerConnectionFactory.builder()
         val egl = eglBase
         if (_isVideoCall.value && egl != null) {
@@ -450,7 +458,7 @@ class CallManager(
                 .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl.eglBaseContext))
         }
         peerConnectionFactory = factoryBuilder.createPeerConnectionFactory()
-        Log.i(TAG, "createPeerConnection: factory created=${peerConnectionFactory != null}")
+        CallLogger.i(TAG, "PeerConnectionFactory created", "ok" to (peerConnectionFactory != null))
 
         val config = PeerConnection.RTCConfiguration(iceServers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
@@ -459,7 +467,7 @@ class CallManager(
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
         }
 
-        Log.i(TAG, "createPeerConnection: creating PeerConnection with ${iceServers.size} ICE servers")
+        CallLogger.i(TAG, "creating PeerConnection", "iceServers" to iceServers.size)
         peerConnection = peerConnectionFactory!!.createPeerConnection(config, object : PeerConnection.Observer {
 
             override fun onIceCandidate(candidate: IceCandidate) {
@@ -468,11 +476,11 @@ class CallManager(
             }
 
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
-                Log.i(TAG, "ICE connection: $state")
+                CallLogger.i(TAG, "ICE state: $state", "callId" to callId)
                 when (state) {
                     PeerConnection.IceConnectionState.CONNECTED,
                     PeerConnection.IceConnectionState.COMPLETED -> {
-                        Log.i(TAG, "ICE CONNECTED — media should flow now")
+                        CallLogger.i(TAG, "ICE CONNECTED — media flowing", "callId" to callId)
                         iceRestartAttempts = 0
                         reconnectJob?.cancel()
                         if (_callState.value == CallState.NEGOTIATING || _callState.value == CallState.RECONNECTING) {
@@ -520,7 +528,7 @@ class CallManager(
             override fun onDataChannel(dc: DataChannel?) {}
             override fun onRenegotiationNeeded() {}
         })
-        Log.i(TAG, "createPeerConnection: PC created=${peerConnection != null}")
+        CallLogger.i(TAG, "PeerConnection created", "ok" to (peerConnection != null))
     }
 
     private fun setupLocalAudio() {
@@ -568,9 +576,9 @@ class CallManager(
     }
 
     private fun createAndSendOffer() {
-        val pc = peerConnection ?: run { Log.e(TAG, "createAndSendOffer: peerConnection is NULL"); return }
-        val cid = callId ?: run { Log.e(TAG, "createAndSendOffer: callId is NULL"); return }
-        Log.i(TAG, "createAndSendOffer: creating offer for callId=$cid")
+        val pc = peerConnection ?: run { CallLogger.e(TAG, "createAndSendOffer: peerConnection is NULL"); return }
+        val cid = callId ?: run { CallLogger.e(TAG, "createAndSendOffer: callId is NULL"); return }
+        CallLogger.i(TAG, "createAndSendOffer", "callId" to cid)
         val isVideo = _isVideoCall.value
 
         val constraints = MediaConstraints().apply {
@@ -579,13 +587,13 @@ class CallManager(
         }
         pc.createOffer(object : SdpObserver {
             override fun onCreateSuccess(offer: SessionDescription) {
-                Log.i(TAG, "SDP offer created — sending to callee")
+                CallLogger.i(TAG, "SDP offer created, sending", "callId" to cid, "type" to offer.type.canonicalForm())
                 pc.setLocalDescription(NoOpSdpObserver("setLocal(offer)"), offer)
                 socketManager.emitCallOffer(cid, offer.type.canonicalForm(), offer.description)
                 setState(CallState.NEGOTIATING)
             }
             override fun onCreateFailure(error: String?) {
-                Log.e(TAG, "createOffer FAILED: $error")
+                CallLogger.e(TAG, "createOffer FAILED", "err" to error)
                 cleanupAndSetIdle("offer_failed")
             }
             override fun onSetSuccess() {}

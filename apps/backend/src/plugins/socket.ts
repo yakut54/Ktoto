@@ -2,6 +2,17 @@ import fp from 'fastify-plugin'
 import { Server, Socket } from 'socket.io'
 import type { FastifyInstance } from 'fastify'
 import { randomUUID } from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
+
+const LOG_FILE = path.join('/logs', 'call-debug.log')
+try { fs.mkdirSync('/logs', { recursive: true }) } catch { /* ok */ }
+
+function serverLog(event: string, data: object) {
+  try {
+    fs.appendFileSync(LOG_FILE, JSON.stringify({ source: 'server', event, ...data, ts: Date.now() }) + '\n')
+  } catch { /* never crash */ }
+}
 
 // ─── Call session types ────────────────────────────────────────────────────
 
@@ -144,6 +155,7 @@ function registerCallHandlers(
     'call_initiate',
     async (data: { toUserId: string; callType: 'audio' | 'video' }) => {
       app.log.info({ from: userId, data }, '>>> call_initiate received')
+      serverLog('call_initiate', { from: userId, toUserId: data?.toUserId, callType: data?.callType })
 
       if (!checkCallRateLimit(userId)) {
         app.log.warn({ userId }, 'call_initiate rate limited')
@@ -213,12 +225,14 @@ function registerCallHandlers(
       // Confirm to caller
       socket.emit('call_initiated', { callId: call.id })
       app.log.info({ callId: call.id, callerId: userId, calleeId: toUserId, callType }, 'Call initiated → call_incoming sent to callee')
+      serverLog('call_initiated', { callId: call.id, callerId: userId, calleeId: toUserId, callType })
     },
   )
 
   // ── call_ringing (callee → caller) ───────────────────────────────────────
   socket.on('call_ringing', async (data: { callId: string }) => {
     app.log.info({ callId: data.callId, from: userId }, '>>> call_ringing received')
+    serverLog('call_ringing', { callId: data.callId, from: userId })
     const call = await getCall(redis, data.callId)
     if (!call || call.calleeId !== userId) return
     app.io.to(`user:${call.callerId}`).emit('call_ringing', { callId: call.id })
@@ -239,6 +253,7 @@ function registerCallHandlers(
       }
 
       app.log.info({ callId: call.id, toUserId: call.calleeId }, 'call_offer → forwarded to callee')
+      serverLog('call_offer_forwarded', { callId: call.id, from: userId, toUserId: call.calleeId })
       app.io
         .to(`user:${call.calleeId}`)
         .emit('call_offer', { callId: call.id, sdp: data.sdp })
@@ -289,6 +304,7 @@ function registerCallHandlers(
       }
 
       app.log.info({ callId: call.id, bufferedCandidates: buffered.length }, 'Call answered → state=active, ICE buffer flushed')
+      serverLog('call_answer_forwarded', { callId: call.id, from: userId, toUserId: call.callerId, bufferedCandidates: buffered.length })
     },
   )
 
@@ -479,6 +495,7 @@ export const socketPlugin = fp(async (app: FastifyInstance) => {
   io.on('connection', async (socket) => {
     const { userId } = socket.data as { userId: string }
     app.log.info({ userId }, 'Socket connected')
+    serverLog('socket_connected', { userId })
 
     // Personal room — for delivering messages to a specific user
     socket.join(`user:${userId}`)
@@ -534,6 +551,7 @@ export const socketPlugin = fp(async (app: FastifyInstance) => {
 
     socket.on('disconnect', async (reason) => {
       app.log.info({ userId, reason }, 'Socket disconnected')
+      serverLog('socket_disconnected', { userId, reason })
 
       // Mark offline + update last_seen_at
       const { rows } = await app.pg.query<{ last_seen_at: string }>(

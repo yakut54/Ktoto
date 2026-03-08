@@ -1,7 +1,48 @@
 import type { FastifyInstance } from 'fastify'
 import crypto from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
+
+const LOG_DIR = '/logs'
+const LOG_FILE = path.join(LOG_DIR, 'call-debug.log')
+
+try { fs.mkdirSync(LOG_DIR, { recursive: true }) } catch { /* ok */ }
+
+function appendLog(entry: object) {
+  try {
+    fs.appendFileSync(LOG_FILE, JSON.stringify(entry) + '\n')
+  } catch { /* never crash on log write */ }
+}
 
 export async function callRoutes(app: FastifyInstance) {
+  /**
+   * POST /api/calls/log
+   * Android remote logger — no auth, fire-and-forget
+   */
+  app.post('/log', async (request, reply) => {
+    const body = request.body as {
+      level?: string
+      tag?: string
+      message?: string
+      data?: Record<string, unknown>
+      deviceId?: string
+      ts?: number
+    }
+    const entry = {
+      source: 'android',
+      deviceId: body.deviceId ?? 'unknown',
+      tag: body.tag ?? '?',
+      level: body.level ?? 'info',
+      message: body.message ?? '',
+      data: body.data,
+      ts: body.ts ?? Date.now(),
+      receivedAt: Date.now(),
+    }
+    appendLog(entry)
+    const logFn = entry.level === 'error' ? app.log.error : entry.level === 'warn' ? app.log.warn : app.log.info
+    logFn.call(app.log, entry, `[android/${entry.deviceId}] [${entry.tag}] ${entry.message}`)
+    return reply.send({ ok: true })
+  })
   /**
    * GET /api/calls/turn-credentials
    * Returns short-lived TURN credentials (HMAC-SHA1, TTL 24h).

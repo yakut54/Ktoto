@@ -2,6 +2,7 @@ package ru.yakut54.ktoto.data.socket
 
 import android.util.Log
 import com.google.gson.Gson
+import ru.yakut54.ktoto.utils.CallLogger
 import io.socket.client.IO
 import io.socket.client.Socket
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -102,13 +103,13 @@ class SocketManager {
 
         socket = IO.socket("http://31.128.39.216:3000", opts).apply {
             on(Socket.EVENT_CONNECT) {
-                Log.d(TAG, "Socket connected")
+                CallLogger.i(TAG, "Socket CONNECTED")
             }
             on(Socket.EVENT_CONNECT_ERROR) { args ->
-                Log.e(TAG, "Socket connect error: ${args.firstOrNull()}")
+                CallLogger.e(TAG, "Socket CONNECT_ERROR", "error" to args.firstOrNull())
             }
             on(Socket.EVENT_DISCONNECT) { args ->
-                Log.d(TAG, "Socket disconnected: ${args.firstOrNull()}")
+                CallLogger.w(TAG, "Socket DISCONNECTED", "reason" to args.firstOrNull())
             }
 
             // ── Messaging ──────────────────────────────────────────────────
@@ -162,25 +163,28 @@ class SocketManager {
 
             // ── Call signaling ─────────────────────────────────────────────
             on("call_incoming") { args ->
-                Log.d(TAG, "call_incoming: ${args.firstOrNull()}")
-                runCatching {
-                    val obj = gson.fromJson(args[0].toString(), Map::class.java)
-                    _callIncoming.tryEmit(
-                        IncomingCallEvent(
-                            callId = obj["callId"] as? String ?: return@runCatching,
-                            fromUserId = obj["fromUserId"] as? String ?: return@runCatching,
-                            fromUsername = obj["fromUsername"] as? String ?: return@runCatching,
-                            fromAvatarUrl = obj["fromAvatarUrl"] as? String,
-                            callType = obj["callType"] as? String ?: "audio",
-                        )
-                    )
-                }.onFailure { Log.e(TAG, "call_incoming parse error", it) }
-            }
-            on("call_initiated") { args ->
-                Log.d(TAG, "call_initiated: ${args.firstOrNull()}")
                 runCatching {
                     val obj = gson.fromJson(args[0].toString(), Map::class.java)
                     val callId = obj["callId"] as? String ?: return@runCatching
+                    val from = obj["fromUsername"] as? String ?: "?"
+                    val type = obj["callType"] as? String ?: "audio"
+                    CallLogger.i(TAG, "SOCKET call_incoming", "callId" to callId, "from" to from, "type" to type)
+                    _callIncoming.tryEmit(
+                        IncomingCallEvent(
+                            callId = callId,
+                            fromUserId = obj["fromUserId"] as? String ?: return@runCatching,
+                            fromUsername = from,
+                            fromAvatarUrl = obj["fromAvatarUrl"] as? String,
+                            callType = type,
+                        )
+                    )
+                }.onFailure { CallLogger.e(TAG, "call_incoming parse error: ${it.message}") }
+            }
+            on("call_initiated") { args ->
+                runCatching {
+                    val obj = gson.fromJson(args[0].toString(), Map::class.java)
+                    val callId = obj["callId"] as? String ?: return@runCatching
+                    CallLogger.i(TAG, "SOCKET call_initiated", "callId" to callId)
                     _callInitiated.tryEmit(callId)
                 }
             }
@@ -188,32 +192,33 @@ class SocketManager {
                 runCatching {
                     val obj = gson.fromJson(args[0].toString(), Map::class.java)
                     val callId = obj["callId"] as? String ?: return@runCatching
+                    CallLogger.i(TAG, "SOCKET call_ringing", "callId" to callId)
                     _callRinging.tryEmit(callId)
                 }
             }
             on("call_offer") { args ->
-                Log.d(TAG, "call_offer received")
                 runCatching {
                     val obj = gson.fromJson(args[0].toString(), Map::class.java)
                     val callId = obj["callId"] as? String ?: return@runCatching
                     @Suppress("UNCHECKED_CAST")
                     val sdpMap = obj["sdp"] as? Map<String, Any> ?: return@runCatching
+                    CallLogger.i(TAG, "SOCKET call_offer received", "callId" to callId)
                     _callOffer.tryEmit(
                         CallSdp(callId, SdpPayload(sdpMap["type"] as? String ?: "", sdpMap["sdp"] as? String ?: ""))
                     )
-                }.onFailure { Log.e(TAG, "call_offer parse error", it) }
+                }.onFailure { CallLogger.e(TAG, "call_offer parse error: ${it.message}") }
             }
             on("call_answer") { args ->
-                Log.d(TAG, "call_answer received")
                 runCatching {
                     val obj = gson.fromJson(args[0].toString(), Map::class.java)
                     val callId = obj["callId"] as? String ?: return@runCatching
                     @Suppress("UNCHECKED_CAST")
                     val sdpMap = obj["sdp"] as? Map<String, Any> ?: return@runCatching
+                    CallLogger.i(TAG, "SOCKET call_answer received", "callId" to callId)
                     _callAnswer.tryEmit(
                         CallSdp(callId, SdpPayload(sdpMap["type"] as? String ?: "", sdpMap["sdp"] as? String ?: ""))
                     )
-                }.onFailure { Log.e(TAG, "call_answer parse error", it) }
+                }.onFailure { CallLogger.e(TAG, "call_answer parse error: ${it.message}") }
             }
             on("call_ice_candidate") { args ->
                 runCatching {
@@ -233,18 +238,17 @@ class SocketManager {
                     )
                 }
             }
-            on("call_rejected") { args -> parseCallEnd(args)?.let { _callRejected.tryEmit(it) } }
-            on("call_cancelled") { args -> parseCallEnd(args)?.let { _callCancelled.tryEmit(it) } }
-            on("call_ended") { args -> parseCallEnd(args)?.let { _callEnded.tryEmit(it) } }
+            on("call_rejected") { args -> parseCallEnd(args)?.let { e -> CallLogger.w(TAG, "SOCKET call_rejected", "callId" to e.callId, "reason" to e.reason); _callRejected.tryEmit(e) } }
+            on("call_cancelled") { args -> parseCallEnd(args)?.let { e -> CallLogger.i(TAG, "SOCKET call_cancelled", "callId" to e.callId, "reason" to e.reason); _callCancelled.tryEmit(e) } }
+            on("call_ended") { args -> parseCallEnd(args)?.let { e -> CallLogger.i(TAG, "SOCKET call_ended", "callId" to e.callId, "duration" to e.duration); _callEnded.tryEmit(e) } }
             on("call_force_end") { args ->
-                Log.d(TAG, "call_force_end: ${args.firstOrNull()}")
-                parseCallEnd(args)?.let { _callForceEnd.tryEmit(it) }
+                parseCallEnd(args)?.let { e -> CallLogger.w(TAG, "SOCKET call_force_end", "callId" to e.callId, "reason" to e.reason); _callForceEnd.tryEmit(e) }
             }
             on("call_error") { args ->
-                Log.e(TAG, "call_error: ${args.firstOrNull()}")
+                CallLogger.e(TAG, "SOCKET call_error", "data" to args.firstOrNull())
             }
             on("call_busy") { args ->
-                Log.d(TAG, "call_busy: ${args.firstOrNull()}")
+                CallLogger.w(TAG, "SOCKET call_busy", "data" to args.firstOrNull())
             }
             on("call_mute") { args ->
                 runCatching {
@@ -279,7 +283,7 @@ class SocketManager {
     }
 
     fun emitCallInitiate(toUserId: String, callType: String) {
-        Log.d(TAG, "emitCallInitiate toUserId=$toUserId callType=$callType connected=${socket?.connected()}")
+        CallLogger.i(TAG, "EMIT call_initiate", "toUserId" to toUserId, "callType" to callType, "connected" to socket?.connected())
         emit("call_initiate", JSONObject().put("toUserId", toUserId).put("callType", callType))
     }
 
@@ -288,6 +292,7 @@ class SocketManager {
     }
 
     fun emitCallOffer(callId: String, type: String, sdp: String) {
+        CallLogger.i(TAG, "EMIT call_offer", "callId" to callId, "sdpType" to type)
         emit("call_offer", JSONObject()
             .put("callId", callId)
             .put("sdp", JSONObject().put("type", type).put("sdp", sdp))
@@ -295,6 +300,7 @@ class SocketManager {
     }
 
     fun emitCallAnswer(callId: String, type: String, sdp: String) {
+        CallLogger.i(TAG, "EMIT call_answer", "callId" to callId, "sdpType" to type)
         emit("call_answer", JSONObject()
             .put("callId", callId)
             .put("sdp", JSONObject().put("type", type).put("sdp", sdp))
@@ -313,10 +319,12 @@ class SocketManager {
     }
 
     fun emitCallReject(callId: String) {
+        CallLogger.i(TAG, "EMIT call_reject", "callId" to callId)
         emit("call_reject", JSONObject().put("callId", callId).put("reason", "declined"))
     }
 
     fun emitCallCancel(callId: String) {
+        CallLogger.i(TAG, "EMIT call_cancel", "callId" to callId)
         emit("call_cancel", JSONObject().put("callId", callId).put("reason", "cancelled"))
     }
 
