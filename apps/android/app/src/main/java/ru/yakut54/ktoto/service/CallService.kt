@@ -12,6 +12,11 @@ import android.media.RingtoneManager
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 import ru.yakut54.ktoto.MainActivity
 import ru.yakut54.ktoto.R
@@ -31,10 +36,28 @@ class CallService : Service() {
     }
 
     private val callManager: CallManager by inject()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var prevCallState: CallState = CallState.IDLE
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        // Switch from ringing → active notification when call is accepted via UI
+        scope.launch {
+            callManager.callState.collect { state ->
+                if (prevCallState == CallState.INCOMING_RINGING &&
+                    (state == CallState.NEGOTIATING || state == CallState.IN_CALL)
+                ) {
+                    switchToActiveNotification()
+                }
+                prevCallState = state
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
