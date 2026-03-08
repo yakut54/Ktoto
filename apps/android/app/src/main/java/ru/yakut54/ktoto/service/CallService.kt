@@ -78,11 +78,16 @@ class CallService : Service() {
                     isIncoming = state == CallState.INCOMING_RINGING,
                 )
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    val serviceType = if (isVideoCall) {
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                    // During ringing the microphone is not captured yet — use dataSync
+                    // to avoid SecurityException on devices where RECORD_AUDIO wasn't
+                    // granted before the first incoming call notification appears.
+                    val isRinging = state == CallState.INCOMING_RINGING ||
+                        state == CallState.OUTGOING_RINGING
+                    val serviceType = when {
+                        isRinging -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                        isVideoCall -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
                             ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
-                    } else {
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                        else -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
                     }
                     startForeground(NOTIF_ID, notification, serviceType)
                 } else {
@@ -161,7 +166,18 @@ class CallService : Service() {
         // stopForeground removes the old notification (with ringtone channel), then
         // startForeground re-attaches with the new silent channel notification.
         stopForeground(STOP_FOREGROUND_REMOVE)
-        startForeground(NOTIF_ID, activeNotif)
+        val isVideo = callManager.isVideoCall.value
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val serviceType = if (isVideo) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+            } else {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            }
+            startForeground(NOTIF_ID, activeNotif, serviceType)
+        } else {
+            startForeground(NOTIF_ID, activeNotif)
+        }
     }
 
     private fun createNotificationChannel() {

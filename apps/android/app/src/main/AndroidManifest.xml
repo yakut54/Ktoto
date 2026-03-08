@@ -71,7 +71,7 @@
 
         <service
             android:name=".service.CallService"
-            android:foregroundServiceType="microphone|camera"
+            android:foregroundServiceType="dataSync|microphone|camera"
             android:exported="false" />
 
         <service
