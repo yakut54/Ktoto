@@ -245,9 +245,7 @@ fun ChatScreen(
     }
 
     // ── Permission state ───────────────────────────────────────────────────────
-    var showMicRationale by remember { mutableStateOf(false) }
     var showMicSettings by remember { mutableStateOf(false) }
-    var showCameraRationale by remember { mutableStateOf(false) }
     var showCameraSettings by remember { mutableStateOf(false) }
     // pendingCamera: after permission granted — finish opening camera
     var pendingCameraOpen by remember { mutableStateOf(false) }
@@ -270,32 +268,8 @@ fun ChatScreen(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? -> uri?.let { pendingMedia = it to "file" } }
 
-    // Mic permission launcher — called when permission not yet granted
-    val micPermLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (!granted) {
-            val canAsk = activity?.let {
-                androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.RECORD_AUDIO)
-            } ?: false
-            if (canAsk) showMicRationale = true else showMicSettings = true
-        }
-        // If granted: user will long-press mic again — natural UX, no auto-start
-    }
-
-    // Camera permission launcher
-    val cameraPermLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            pendingCameraOpen = true
-        } else {
-            val canAsk = activity?.let {
-                androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.CAMERA)
-            } ?: false
-            if (canAsk) showCameraRationale = true else showCameraSettings = true
-        }
-    }
+    // Пермишны запрошены при входе (ConversationsScreen).
+    // Если пользователь всё же отклонил — направляем в настройки.
 
     // When camera permission was just granted, open the camera
     LaunchedEffect(pendingCameraOpen) {
@@ -320,10 +294,7 @@ fun ChatScreen(
             )
             cameraUri?.let { cameraLauncher.launch(it) }
         } else {
-            val canAsk = activity?.let {
-                androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.CAMERA)
-            } ?: false
-            if (canAsk) showCameraRationale = true else cameraPermLauncher.launch(Manifest.permission.CAMERA)
+            showCameraSettings = true
         }
     }
 
@@ -700,13 +671,7 @@ fun ChatScreen(
                                                                 context, Manifest.permission.RECORD_AUDIO
                                                             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
                                                             if (!micGranted) {
-                                                                val canAsk = activity?.let {
-                                                                    androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(
-                                                                        it, Manifest.permission.RECORD_AUDIO
-                                                                    )
-                                                                } ?: false
-                                                                if (canAsk) showMicRationale = true
-                                                                else micPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                                                showMicSettings = true
                                                                 return@awaitEachGesture
                                                             }
                                                             vm.startRecording(context)
@@ -1261,25 +1226,7 @@ fun ChatScreen(
 
     // ── Permission dialogs ─────────────────────────────────────────────────────
 
-    // Mic: rationale (denied once, can ask again)
-    if (showMicRationale) {
-        AlertDialog(
-            onDismissRequest = { showMicRationale = false },
-            title = { Text("Доступ к микрофону") },
-            text = { Text("Для записи голосовых сообщений нужен доступ к микрофону.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showMicRationale = false
-                    micPermLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                }) { Text("Разрешить") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showMicRationale = false }) { Text("Отмена") }
-            },
-        )
-    }
-
-    // Mic: permanently denied — send to settings
+    // Mic: доступ отклонён — в настройки
     if (showMicSettings) {
         AlertDialog(
             onDismissRequest = { showMicSettings = false },
@@ -1300,25 +1247,7 @@ fun ChatScreen(
         )
     }
 
-    // Camera: rationale
-    if (showCameraRationale) {
-        AlertDialog(
-            onDismissRequest = { showCameraRationale = false },
-            title = { Text("Доступ к камере") },
-            text = { Text("Для съёмки фото нужен доступ к камере.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showCameraRationale = false
-                    cameraPermLauncher.launch(Manifest.permission.CAMERA)
-                }) { Text("Разрешить") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCameraRationale = false }) { Text("Отмена") }
-            },
-        )
-    }
-
-    // Camera: permanently denied — send to settings
+    // Camera: доступ отклонён — в настройки
     if (showCameraSettings) {
         AlertDialog(
             onDismissRequest = { showCameraSettings = false },

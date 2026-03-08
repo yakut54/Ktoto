@@ -3,6 +3,13 @@ import type { FastifyInstance } from 'fastify'
 export async function userRoutes(app: FastifyInstance) {
   app.addHook('onRequest', app.authenticate)
 
+  // PUT /api/users/fcm-token
+  app.put<{ Body: { fcmToken: string } }>('/fcm-token', async (request, reply) => {
+    const { fcmToken } = request.body
+    await app.pg.query('UPDATE users SET fcm_token = $1 WHERE id = $2', [fcmToken, request.user.userId])
+    reply.send({ ok: true })
+  })
+
   // GET /api/users?search=username
   app.get<{ Querystring: { search?: string } }>('/', async (request) => {
     const { userId } = request.user

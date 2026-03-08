@@ -2,6 +2,7 @@ package ru.yakut54.ktoto.ui.conversations
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -74,16 +75,26 @@ fun ConversationsScreen(
     val typingConvIds by vm.typingConvIds.collectAsState()
 
     val context = LocalContext.current
-    val callPermLauncher = rememberLauncherForActivityResult(
+    val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { /* permissions saved by OS — no action needed */ }
+    ) { /* результат сохранён ОС */ }
 
-    // Request microphone permission once after login so audio calls start without interruption.
-    // CAMERA is intentionally excluded — it will be requested on demand when starting a video call.
+    // Запрашиваем все нужные пермишны сразу после входа
     LaunchedEffect(Unit) {
-        val needed = listOf(Manifest.permission.RECORD_AUDIO)
-            .filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
-        if (needed.isNotEmpty()) callPermLauncher.launch(needed.toTypedArray())
+        val perms = buildList {
+            add(Manifest.permission.RECORD_AUDIO)
+            add(Manifest.permission.CAMERA)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+                add(Manifest.permission.BLUETOOTH_CONNECT)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.READ_MEDIA_IMAGES)
+                add(Manifest.permission.READ_MEDIA_VIDEO)
+            } else {
+                @Suppress("DEPRECATION")
+                add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
+        }.filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
+        if (perms.isNotEmpty()) permLauncher.launch(perms.toTypedArray())
     }
 
     val lifecycle = LocalLifecycleOwner.current.lifecycle

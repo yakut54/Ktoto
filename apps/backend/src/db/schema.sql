@@ -27,6 +27,9 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='banned_at') THEN
     ALTER TABLE users ADD COLUMN banned_at TIMESTAMPTZ;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='fcm_token') THEN
+    ALTER TABLE users ADD COLUMN fcm_token TEXT;
+  END IF;
 END $$;
 
 CREATE INDEX IF NOT EXISTS idx_users_email    ON users(email);

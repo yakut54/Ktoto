@@ -2,6 +2,8 @@ package ru.yakut54.ktoto.data.model
 
 data class LoginRequest(val username: String, val password: String)
 
+data class FcmTokenRequest(val fcmToken: String)
+
 data class RegisterRequest(val username: String, val email: String, val password: String)
 
 data class ErrorResponse(val error: String?)

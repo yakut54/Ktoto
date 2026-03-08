@@ -13,11 +13,13 @@ import retrofit2.http.Header
 import retrofit2.http.Multipart
 import retrofit2.http.PATCH
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
 import ru.yakut54.ktoto.data.model.AuthResponse
 import ru.yakut54.ktoto.data.model.Conversation
+import ru.yakut54.ktoto.data.model.FcmTokenRequest
 import ru.yakut54.ktoto.data.model.CreateConversationRequest
 import ru.yakut54.ktoto.data.model.EditMessageRequest
 import ru.yakut54.ktoto.data.model.LoginRequest
@@ -114,6 +116,12 @@ interface ApiService {
         @Header("Authorization") token: String,
         @Path("id") conversationId: String,
     ): Map<String, Any>
+
+    @PUT("api/users/fcm-token")
+    suspend fun updateFcmToken(
+        @Header("Authorization") token: String,
+        @Body body: FcmTokenRequest,
+    )
 }
 
 fun buildApiService(baseUrl: String, tokenStore: TokenStore): ApiService {

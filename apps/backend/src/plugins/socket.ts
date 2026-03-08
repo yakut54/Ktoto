@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { pushCallToUser } from '../services/push.service.js'
 
 const LOG_FILE = path.join('/logs', 'call-debug.log')
 try { fs.mkdirSync('/logs', { recursive: true }) } catch { /* ok */ }
@@ -310,6 +311,13 @@ function registerCallHandlers(
         fromAvatarUrl: caller.avatar_url,
         callType,
       })
+
+      // FCM high-priority push to wake device if WebSocket is dead (MIUI/OEM kill)
+      pushCallToUser(
+        (sql, params) => app.pg.query(sql, params as unknown[]),
+        toUserId,
+        { callId: call.id, fromUsername: caller.username, fromAvatarUrl: caller.avatar_url, callType },
+      ).catch(() => {})
 
       // Confirm to caller
       socket.emit('call_initiated', { callId: call.id })

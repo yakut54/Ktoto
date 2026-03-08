@@ -1,10 +1,6 @@
 package ru.yakut54.ktoto.ui.navigation
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -34,7 +30,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -98,35 +93,9 @@ fun AppNavigation(
     val callAction by pendingCallAction.collectAsState()
     val callState by callVm.callState.collectAsState()
 
-    // Pending call params while waiting for runtime permissions
-    var pendingCall by remember { mutableStateOf<Triple<String, String, String>?>(null) }
-
-    val callPermLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { results ->
-        if (results[Manifest.permission.RECORD_AUDIO] == true) {
-            pendingCall?.let { (peerId, peerName, callType) ->
-                callVm.startCall(peerId, peerName, null, callType)
-                navController.navigate(Routes.CALL) { launchSingleTop = true }
-            }
-        }
-        pendingCall = null
-    }
-
     fun startCallWithPermission(peerId: String, peerName: String, callType: String) {
-        val micOk = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        val camOk = callType != "video" || ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-        if (micOk && camOk) {
-            callVm.startCall(peerId, peerName, null, callType)
-            navController.navigate(Routes.CALL) { launchSingleTop = true }
-        } else {
-            pendingCall = Triple(peerId, peerName, callType)
-            val perms = buildList {
-                if (!micOk) add(Manifest.permission.RECORD_AUDIO)
-                if (!camOk) add(Manifest.permission.CAMERA)
-            }.toTypedArray()
-            callPermLauncher.launch(perms)
-        }
+        callVm.startCall(peerId, peerName, null, callType)
+        navController.navigate(Routes.CALL) { launchSingleTop = true }
     }
 
     // Auto-navigate to call screen when incoming call arrives

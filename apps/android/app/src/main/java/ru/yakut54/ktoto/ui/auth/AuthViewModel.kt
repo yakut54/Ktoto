@@ -5,8 +5,11 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.tasks.await
 import ru.yakut54.ktoto.data.api.ApiService
 import ru.yakut54.ktoto.data.api.toRussianMessage
+import ru.yakut54.ktoto.data.model.FcmTokenRequest
 import ru.yakut54.ktoto.data.model.LoginRequest
 import ru.yakut54.ktoto.data.model.RegisterRequest
 import ru.yakut54.ktoto.data.store.TokenStore
@@ -37,6 +40,10 @@ class AuthViewModel(
                     userId = response.user.id,
                     username = response.user.username,
                 )
+                runCatching {
+                    val fcmToken = FirebaseMessaging.getInstance().token.await()
+                    api.updateFcmToken("Bearer ${response.accessToken}", FcmTokenRequest(fcmToken))
+                }
                 _state.value = AuthState.Success
             } catch (e: Exception) {
                 _state.value = AuthState.Error(e.toRussianMessage())
@@ -55,6 +62,10 @@ class AuthViewModel(
                     userId = response.user.id,
                     username = response.user.username,
                 )
+                runCatching {
+                    val fcmToken = FirebaseMessaging.getInstance().token.await()
+                    api.updateFcmToken("Bearer ${response.accessToken}", FcmTokenRequest(fcmToken))
+                }
                 _state.value = AuthState.Success
             } catch (e: Exception) {
                 _state.value = AuthState.Error(e.toRussianMessage())

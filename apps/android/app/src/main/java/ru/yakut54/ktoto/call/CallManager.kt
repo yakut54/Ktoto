@@ -157,10 +157,15 @@ class CallManager(
     private fun acquireWakeLock() {
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock?.let { if (it.isHeld) it.release() }
-        wakeLock = pm.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
-            "ktoto:incoming_call",
-        ).also { it.acquire(60_000L) }
+        // ACQUIRE_CAUSES_WAKEUP deprecated API 33+ — screen wake handled by
+        // setTurnScreenOn(true) in MainActivity; PARTIAL_WAKE_LOCK keeps CPU alive.
+        val flags = if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
+            @Suppress("DEPRECATION")
+            PowerManager.PARTIAL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP
+        } else {
+            PowerManager.PARTIAL_WAKE_LOCK
+        }
+        wakeLock = pm.newWakeLock(flags, "ktoto:incoming_call").also { it.acquire(60_000L) }
     }
 
     private fun releaseWakeLock() {

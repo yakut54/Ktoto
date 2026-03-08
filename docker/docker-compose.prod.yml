@@ -8,6 +8,7 @@ services:
     env_file: .env.prod
     environment:
       MINIO_PUBLIC_ENDPOINT: http://31.128.39.216:9000
+      FIREBASE_SERVICE_ACCOUNT_JSON: ${FIREBASE_SERVICE_ACCOUNT_JSON:-}
     depends_on:
       db:
         condition: service_healthy

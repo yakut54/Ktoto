@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "69318804875",
+    "project_id": "ktoto-c861c",
+    "storage_bucket": "ktoto-c861c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:69318804875:android:79db7fdc67a4616d389b8e",
+        "android_client_info": {
+          "package_name": "ru.yakut54.ktoto"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAR9JKcBxQ4ZOWIeOYQbB8n1gjBMzZ5T14"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
