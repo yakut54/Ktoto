@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -399,87 +400,275 @@ fun ChatScreen(
                 )
             }
         },
-        bottomBar = {
-            Surface(shadowElevation = 4.dp, tonalElevation = 2.dp) {
-                if (selectionMode) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .navigationBarsPadding()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        if (selectedIds.size == 1) {
-                            OutlinedButton(
-                                onClick = {
-                                    messages.find { it.id in selectedIds }?.let { vm.setReplyTo(it) }
-                                    selectionMode = false; selectedIds = emptySet()
-                                },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(50),
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.Reply, null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text("Ответить")
-                            }
+        contentWindowInsets = WindowInsets(0),
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = padding.calculateTopPadding())
+                .imePadding(),
+        ) {
+        LazyColumn(
+            state = listState,
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 8.dp),
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            items(messages, key = { it.id }) { msg ->
+                val swipeOffset = remember { Animatable(0f) }
+                val swipeScope = rememberCoroutineScope()
+                val haptic = LocalHapticFeedback.current
+                val thresholdPx = with(LocalDensity.current) { 72.dp.toPx() }
+                val isBulkSelected = msg.id in selectedIds
+                val isHighlighted = msg.id == highlightedMessageId
+                val highlightBg by animateColorAsState(
+                    targetValue = if (isHighlighted) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent,
+                    label = "highlight",
+                )
+                val interactionSource = remember { MutableInteractionSource() }
+                val isPressed by interactionSource.collectIsPressedAsState()
+                val pressScale by animateFloatAsState(
+                    targetValue = if (isPressed) 0.965f else 1f,
+                    animationSpec = spring(stiffness = Spring.StiffnessHigh),
+                    label = "pressScale",
+                )
+
+                AnimatedVisibility(
+                    visible = msg.id !in deletingIds,
+                    exit = shrinkVertically(animationSpec = tween(260)) + fadeOut(animationSpec = tween(220)),
+                    modifier = Modifier.animateItem(
+                        placementSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                    ),
+                ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            if (isBulkSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                            else highlightBg
+                        )
+                        .combinedClickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                            onClick = {
+                                if (selectionMode) {
+                                    selectedIds = if (msg.id in selectedIds) selectedIds - msg.id else selectedIds + msg.id
+                                    if (selectedIds.isEmpty()) selectionMode = false
+                                }
+                            },
+                            onLongClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                selectionMode = true
+                                selectedIds = selectedIds + msg.id
+                            },
+                        ),
+                ) {
+                    val swipeVal = swipeOffset.value
+
+                    // ── Forward indicator (swipe right) ────────────────────────
+                    if (swipeVal > 8f) {
+                        val progress = (swipeVal / thresholdPx).coerceIn(0f, 1f)
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .padding(start = 12.dp)
+                                .size(36.dp)
+                                .graphicsLayer { scaleX = progress; scaleY = progress; alpha = progress }
+                                .background(MaterialTheme.colorScheme.secondary, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Reply, null, tint = Color.White,
+                                modifier = Modifier.size(18.dp).graphicsLayer { scaleX = -1f })
                         }
+                    }
+
+                    // ── Reply indicator (swipe left) ────────────────────────────
+                    if (swipeVal < -8f) {
+                        val progress = (-swipeVal / thresholdPx).coerceIn(0f, 1f)
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .padding(end = 12.dp)
+                                .size(36.dp)
+                                .graphicsLayer { scaleX = progress; scaleY = progress; alpha = progress }
+                                .background(MaterialTheme.colorScheme.primary, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Reply, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                        }
+                    }
+
+                    // ── Sliding message content ────────────────────────────────
+                    Box(
+                        modifier = Modifier
+                            .offset { IntOffset(swipeVal.toInt(), 0) }
+                            .graphicsLayer { scaleX = pressScale; scaleY = pressScale }
+                            .then(
+                                if (!selectionMode) Modifier.pointerInput(msg.id) {
+                                    var actionTriggered = false
+                                    detectHorizontalDragGestures(
+                                        onDragStart = { actionTriggered = false },
+                                        onHorizontalDrag = { change, dragAmount ->
+                                            change.consume()
+                                            val newOffset = (swipeOffset.value + dragAmount)
+                                                .coerceIn(-thresholdPx * 1.4f, thresholdPx * 1.4f)
+                                            swipeScope.launch { swipeOffset.snapTo(newOffset) }
+                                            if (!actionTriggered) {
+                                                when {
+                                                    newOffset >= thresholdPx -> {
+                                                        actionTriggered = true
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        showForwardPicker = msg
+                                                        vm.loadConversationsForPicker()
+                                                    }
+                                                    newOffset <= -thresholdPx -> {
+                                                        actionTriggered = true
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        vm.setReplyTo(msg)
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        onDragEnd = {
+                                            swipeScope.launch {
+                                                swipeOffset.animateTo(
+                                                    0f,
+                                                    spring(
+                                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                        stiffness = Spring.StiffnessMedium,
+                                                    ),
+                                                )
+                                            }
+                                        },
+                                        onDragCancel = {
+                                            swipeScope.launch { swipeOffset.animateTo(0f, spring()) }
+                                        },
+                                    )
+                                }
+                                else Modifier
+                            ),
+                    ) {
+                        if (selectionMode) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                TelegramCheckbox(
+                                    checked = isBulkSelected,
+                                    modifier = Modifier.padding(start = 8.dp),
+                                )
+                                MessageBubble(
+                                    message = msg,
+                                    isMine = msg.sender.id == currentUserId,
+                                    allMessages = messages,
+                                    onLongClick = {},
+                                )
+                            }
+                        } else {
+                            MessageBubble(
+                                message = msg,
+                                isMine = msg.sender.id == currentUserId,
+                                allMessages = messages,
+                                onLongClick = { selectionMode = true; selectedIds = selectedIds + msg.id },
+                                onQuoteTap = { replyId ->
+                                    chatScope.launch {
+                                        val idx = messages.indexOfFirst { it.id == replyId }
+                                        if (idx >= 0) {
+                                            listState.animateScrollToItem(idx)
+                                            highlightedMessageId = replyId
+                                            delay(1500)
+                                            highlightedMessageId = null
+                                        }
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+                } // AnimatedVisibility
+            }
+        }
+        Surface(shadowElevation = 4.dp, tonalElevation = 2.dp) {
+            if (selectionMode) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    if (selectedIds.size == 1) {
                         OutlinedButton(
                             onClick = {
-                                showMultiForwardPicker = true
-                                vm.loadConversationsForPicker()
+                                messages.find { it.id in selectedIds }?.let { vm.setReplyTo(it) }
+                                selectionMode = false; selectedIds = emptySet()
                             },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(50),
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.Reply, null,
-                                modifier = Modifier.size(18.dp).graphicsLayer { scaleX = -1f })
+                            Icon(Icons.AutoMirrored.Filled.Reply, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("Переслать")
+                            Text("Ответить")
                         }
                     }
-                } else when (voiceState) {
-                    // ── LOCKED: recording without holding ───────────────────────────────
-                    VoiceState.LOCKED -> LockedRecordingBar(
-                        seconds = recordingSeconds,
-                        onCancel = { vm.cancelRecording() },
-                        onPause = { vm.pauseRecording() },
-                        onSend = { vm.sendVoiceFromLocked() },
-                    )
+                    OutlinedButton(
+                        onClick = {
+                            showMultiForwardPicker = true
+                            vm.loadConversationsForPicker()
+                        },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(50),
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Reply, null,
+                            modifier = Modifier.size(18.dp).graphicsLayer { scaleX = -1f })
+                        Spacer(Modifier.width(8.dp))
+                        Text("Переслать")
+                    }
+                }
+            } else when (voiceState) {
+                // ── LOCKED: recording without holding ───────────────────────────────
+                VoiceState.LOCKED -> LockedRecordingBar(
+                    seconds = recordingSeconds,
+                    onCancel = { vm.cancelRecording() },
+                    onPause = { vm.pauseRecording() },
+                    onSend = { vm.sendVoiceFromLocked() },
+                )
 
-                    // ── PAUSED: recorder stopped, user can listen or continue ────────────
-                    VoiceState.PAUSED -> PausedRecordingBar(
-                        seconds = recordingSeconds,
-                        isPlaying = previewPlaying,
-                        progress = previewProgress,
-                        onCancel = { vm.cancelRecording() },
-                        onTogglePlay = { vm.togglePreviewPlayback() },
-                        onContinue = { vm.resumeRecording(context) },
-                        onSend = { vm.sendVoicePaused() },
-                        onSeek = { vm.seekPreviewTo(it) },
-                    )
+                // ── PAUSED: recorder stopped, user can listen or continue ────────────
+                VoiceState.PAUSED -> PausedRecordingBar(
+                    seconds = recordingSeconds,
+                    isPlaying = previewPlaying,
+                    progress = previewProgress,
+                    onCancel = { vm.cancelRecording() },
+                    onTogglePlay = { vm.togglePreviewPlayback() },
+                    onContinue = { vm.resumeRecording(context) },
+                    onSend = { vm.sendVoicePaused() },
+                    onSeek = { vm.seekPreviewTo(it) },
+                )
 
-                    // ── PREVIEW: stopped, user decides to listen / send / delete ────────
-                    VoiceState.PREVIEW -> VoicePreviewBar(
-                        durationSeconds = previewDuration,
-                        isPlaying = previewPlaying,
-                        progress = previewProgress,
-                        onDelete = { vm.deleteVoicePreview() },
-                        onTogglePlay = { vm.togglePreviewPlayback() },
-                        onSend = { vm.sendVoicePreview() },
-                        onSeek = { vm.seekPreviewTo(it) },
-                    )
+                // ── PREVIEW: stopped, user decides to listen / send / delete ────────
+                VoiceState.PREVIEW -> VoicePreviewBar(
+                    durationSeconds = previewDuration,
+                    isPlaying = previewPlaying,
+                    progress = previewProgress,
+                    onDelete = { vm.deleteVoicePreview() },
+                    onTogglePlay = { vm.togglePreviewPlayback() },
+                    onSend = { vm.sendVoicePreview() },
+                    onSeek = { vm.seekPreviewTo(it) },
+                )
 
-                    // ── IDLE or RECORDING: normal input row + optional recording overlay ─
-                    else -> {
-                        val cancelThresholdPx = with(density) { 80.dp.toPx() }
-                        val lockThresholdPx = with(density) { 80.dp.toPx() }
+                // ── IDLE or RECORDING: normal input row + optional recording overlay ─
+                else -> {
+                    val cancelThresholdPx = with(density) { 80.dp.toPx() }
+                    val lockThresholdPx = with(density) { 80.dp.toPx() }
 
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .navigationBarsPadding()
-                                .imePadding(),
-                        ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding(),
+                    ) {
                             // ── Reply / Edit bar ───────────────────────────────────────
                             when {
                                 editingMessage != null -> {
@@ -791,191 +980,8 @@ fun ChatScreen(
                     }
                 }
             }
-        },
-    ) { padding ->
-        LazyColumn(
-            state = listState,
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 8.dp),
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            items(messages, key = { it.id }) { msg ->
-                val swipeOffset = remember { Animatable(0f) }
-                val swipeScope = rememberCoroutineScope()
-                val haptic = LocalHapticFeedback.current
-                val thresholdPx = with(LocalDensity.current) { 72.dp.toPx() }
-                val isBulkSelected = msg.id in selectedIds
-                val isHighlighted = msg.id == highlightedMessageId
-                val highlightBg by animateColorAsState(
-                    targetValue = if (isHighlighted) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent,
-                    label = "highlight",
-                )
-                val interactionSource = remember { MutableInteractionSource() }
-                val isPressed by interactionSource.collectIsPressedAsState()
-                val pressScale by animateFloatAsState(
-                    targetValue = if (isPressed) 0.965f else 1f,
-                    animationSpec = spring(stiffness = Spring.StiffnessHigh),
-                    label = "pressScale",
-                )
-
-                AnimatedVisibility(
-                    visible = msg.id !in deletingIds,
-                    exit = shrinkVertically(animationSpec = tween(260)) + fadeOut(animationSpec = tween(220)),
-                    modifier = Modifier.animateItem(
-                        placementSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                    ),
-                ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            if (isBulkSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                            else highlightBg
-                        )
-                        .combinedClickable(
-                            interactionSource = interactionSource,
-                            indication = null,
-                            onClick = {
-                                if (selectionMode) {
-                                    selectedIds = if (msg.id in selectedIds) selectedIds - msg.id else selectedIds + msg.id
-                                    if (selectedIds.isEmpty()) selectionMode = false
-                                }
-                            },
-                            onLongClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                selectionMode = true
-                                selectedIds = selectedIds + msg.id
-                            },
-                        ),
-                ) {
-                    val swipeVal = swipeOffset.value
-
-                    // ── Forward indicator (swipe right) ────────────────────────
-                    if (swipeVal > 8f) {
-                        val progress = (swipeVal / thresholdPx).coerceIn(0f, 1f)
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.CenterStart)
-                                .padding(start = 12.dp)
-                                .size(36.dp)
-                                .graphicsLayer { scaleX = progress; scaleY = progress; alpha = progress }
-                                .background(MaterialTheme.colorScheme.secondary, CircleShape),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.Reply, null, tint = Color.White,
-                                modifier = Modifier.size(18.dp).graphicsLayer { scaleX = -1f })
-                        }
-                    }
-
-                    // ── Reply indicator (swipe left) ────────────────────────────
-                    if (swipeVal < -8f) {
-                        val progress = (-swipeVal / thresholdPx).coerceIn(0f, 1f)
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.CenterEnd)
-                                .padding(end = 12.dp)
-                                .size(36.dp)
-                                .graphicsLayer { scaleX = progress; scaleY = progress; alpha = progress }
-                                .background(MaterialTheme.colorScheme.primary, CircleShape),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.Reply, null, tint = Color.White, modifier = Modifier.size(18.dp))
-                        }
-                    }
-
-                    // ── Sliding message content ────────────────────────────────
-                    Box(
-                        modifier = Modifier
-                            .offset { IntOffset(swipeVal.toInt(), 0) }
-                            .graphicsLayer { scaleX = pressScale; scaleY = pressScale }
-                            .then(
-                                if (!selectionMode) Modifier.pointerInput(msg.id) {
-                                    var actionTriggered = false
-                                    detectHorizontalDragGestures(
-                                        onDragStart = { actionTriggered = false },
-                                        onHorizontalDrag = { change, dragAmount ->
-                                            change.consume()
-                                            val newOffset = (swipeOffset.value + dragAmount)
-                                                .coerceIn(-thresholdPx * 1.4f, thresholdPx * 1.4f)
-                                            swipeScope.launch { swipeOffset.snapTo(newOffset) }
-                                            if (!actionTriggered) {
-                                                when {
-                                                    newOffset >= thresholdPx -> {
-                                                        actionTriggered = true
-                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                        showForwardPicker = msg
-                                                        vm.loadConversationsForPicker()
-                                                    }
-                                                    newOffset <= -thresholdPx -> {
-                                                        actionTriggered = true
-                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                        vm.setReplyTo(msg)
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        onDragEnd = {
-                                            swipeScope.launch {
-                                                swipeOffset.animateTo(
-                                                    0f,
-                                                    spring(
-                                                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                        stiffness = Spring.StiffnessMedium,
-                                                    ),
-                                                )
-                                            }
-                                        },
-                                        onDragCancel = {
-                                            swipeScope.launch { swipeOffset.animateTo(0f, spring()) }
-                                        },
-                                    )
-                                }
-                                else Modifier
-                            ),
-                    ) {
-                        if (selectionMode) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                TelegramCheckbox(
-                                    checked = isBulkSelected,
-                                    modifier = Modifier.padding(start = 8.dp),
-                                )
-                                MessageBubble(
-                                    message = msg,
-                                    isMine = msg.sender.id == currentUserId,
-                                    allMessages = messages,
-                                    onLongClick = {},
-                                )
-                            }
-                        } else {
-                            MessageBubble(
-                                message = msg,
-                                isMine = msg.sender.id == currentUserId,
-                                allMessages = messages,
-                                onLongClick = { selectionMode = true; selectedIds = selectedIds + msg.id },
-                                onQuoteTap = { replyId ->
-                                    chatScope.launch {
-                                        val idx = messages.indexOfFirst { it.id == replyId }
-                                        if (idx >= 0) {
-                                            listState.animateScrollToItem(idx)
-                                            highlightedMessageId = replyId
-                                            delay(1500)
-                                            highlightedMessageId = null
-                                        }
-                                    }
-                                },
-                            )
-                        }
-                    }
-                }
-                } // AnimatedVisibility
-            }
         }
+        } // end Column
     }
 
     // Delete confirmation dialog — "для меня" / "для всех"
@@ -1387,7 +1393,6 @@ private fun LockedRecordingBar(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .imePadding()
             .padding(horizontal = 8.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1444,7 +1449,6 @@ private fun PausedRecordingBar(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .imePadding()
             .padding(horizontal = 8.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1548,7 +1552,6 @@ private fun VoicePreviewBar(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .imePadding()
             .padding(horizontal = 8.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
