@@ -44,6 +44,59 @@ export async function callRoutes(app: FastifyInstance) {
     return reply.send({ ok: true })
   })
   /**
+   * GET /api/calls/history
+   * Returns the authenticated user's call history (last 100 calls).
+   */
+  app.get(
+    '/history',
+    { preHandler: [app.authenticate] },
+    async (request, reply) => {
+      const userId = (request.user as { userId: string }).userId
+      const { rows } = await app.pg.query<{
+        id: string
+        caller_id: string
+        callee_id: string
+        call_type: string
+        end_reason: string | null
+        duration_sec: number | null
+        started_at: string
+        answered_at: string | null
+        caller_username: string
+        caller_avatar: string | null
+        callee_username: string
+        callee_avatar: string | null
+      }>(
+        `SELECT c.id, c.caller_id, c.callee_id, c.call_type, c.end_reason, c.duration_sec,
+                c.started_at, c.answered_at,
+                u1.username AS caller_username, u1.avatar_url AS caller_avatar,
+                u2.username AS callee_username, u2.avatar_url AS callee_avatar
+         FROM calls c
+         JOIN users u1 ON u1.id = c.caller_id
+         JOIN users u2 ON u2.id = c.callee_id
+         WHERE c.caller_id = $1 OR c.callee_id = $1
+         ORDER BY c.started_at DESC
+         LIMIT 100`,
+        [userId],
+      )
+      return reply.send(
+        rows.map((r) => ({
+          id: r.id,
+          callType: r.call_type,
+          endReason: r.end_reason,
+          durationSec: r.duration_sec,
+          startedAt: r.started_at,
+          answeredAt: r.answered_at,
+          isOutgoing: r.caller_id === userId,
+          peer:
+            r.caller_id === userId
+              ? { id: r.callee_id, username: r.callee_username, avatarUrl: r.callee_avatar }
+              : { id: r.caller_id, username: r.caller_username, avatarUrl: r.caller_avatar },
+        })),
+      )
+    },
+  )
+
+  /**
    * GET /api/calls/turn-credentials
    * Returns short-lived TURN credentials (HMAC-SHA1, TTL 24h).
    * Android uses these to configure PeerConnection ICE servers.

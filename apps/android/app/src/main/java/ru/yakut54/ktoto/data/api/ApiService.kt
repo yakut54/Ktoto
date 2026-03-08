@@ -24,6 +24,7 @@ import ru.yakut54.ktoto.data.model.LoginRequest
 import ru.yakut54.ktoto.data.model.Message
 import ru.yakut54.ktoto.data.model.RegisterRequest
 import ru.yakut54.ktoto.data.model.SendMessageRequest
+import ru.yakut54.ktoto.data.model.CallRecord
 import ru.yakut54.ktoto.data.model.TurnCredentials
 import ru.yakut54.ktoto.data.model.UserItem
 import ru.yakut54.ktoto.data.store.TokenStore
@@ -104,6 +105,9 @@ interface ApiService {
 
     @GET("api/calls/turn-credentials")
     suspend fun getTurnCredentials(@Header("Authorization") token: String): TurnCredentials
+
+    @GET("api/calls/history")
+    suspend fun getCallHistory(@Header("Authorization") token: String): List<CallRecord>
 
     @POST("api/conversations/{id}/read")
     suspend fun markConversationRead(

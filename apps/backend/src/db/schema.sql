@@ -116,6 +116,24 @@ CREATE TABLE IF NOT EXISTS blocked_users (
 CREATE INDEX IF NOT EXISTS idx_blocked_blocker ON blocked_users(blocker_id);
 
 -- ============================================================
+-- CALLS (history)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS calls (
+  id              UUID         PRIMARY KEY,
+  caller_id       UUID         REFERENCES users(id) ON DELETE SET NULL,
+  callee_id       UUID         REFERENCES users(id) ON DELETE SET NULL,
+  call_type       VARCHAR(10)  NOT NULL CHECK (call_type IN ('audio', 'video')),
+  end_reason      VARCHAR(50),
+  duration_sec    INT,
+  started_at      TIMESTAMPTZ  NOT NULL,
+  answered_at     TIMESTAMPTZ,
+  ended_at        TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_calls_caller ON calls(caller_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_calls_callee ON calls(callee_id, started_at DESC);
+
+-- ============================================================
 -- AUTO updated_at TRIGGER
 -- ============================================================
 CREATE OR REPLACE FUNCTION update_updated_at()

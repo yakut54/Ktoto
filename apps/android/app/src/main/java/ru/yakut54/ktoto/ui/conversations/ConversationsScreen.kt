@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.Badge
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -55,6 +56,7 @@ import ru.yakut54.ktoto.utils.nameToAvatarColor
 fun ConversationsScreen(
     onConversationClick: (Conversation, userId: String) -> Unit,
     onNewChat: () -> Unit,
+    onCallHistory: () -> Unit,
     onLogout: () -> Unit,
 ) {
     val vm: ConversationsViewModel = koinViewModel()
@@ -88,6 +90,9 @@ fun ConversationsScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onCallHistory) {
+                        Icon(Icons.Default.Phone, contentDescription = "История звонков")
+                    }
                     IconButton(onClick = { vm.logout(onLogout) }) {
                         Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Выйти")
                     }

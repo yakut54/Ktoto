@@ -47,6 +47,7 @@ import ru.yakut54.ktoto.call.CallState
 import ru.yakut54.ktoto.ui.auth.AuthScreen
 import ru.yakut54.ktoto.ui.call.CallScreen
 import ru.yakut54.ktoto.ui.call.CallViewModel
+import ru.yakut54.ktoto.ui.callhistory.CallHistoryScreen
 import ru.yakut54.ktoto.ui.chat.ChatScreen
 import ru.yakut54.ktoto.ui.conversations.ConversationsScreen
 import ru.yakut54.ktoto.ui.newchat.NewChatScreen
@@ -63,6 +64,7 @@ object Routes {
     const val NEW_CHAT = "new_chat"
     const val CHAT = "chat/{convId}/{convName}/{userId}/{otherId}"
     const val CALL = "call"
+    const val CALL_HISTORY = "call_history"
 
     fun chat(convId: String, convName: String, userId: String, otherId: String = "") =
         "chat/$convId/${convName.ifBlank { "Чат" }}/$userId/${otherId.ifBlank { "_" }}"
@@ -232,6 +234,7 @@ fun AppNavigation(
                     navController.navigate(Routes.chat(conv.id, conv.name ?: "Чат", userId, conv.otherId ?: ""))
                 },
                 onNewChat = { navController.navigate(Routes.NEW_CHAT) },
+                onCallHistory = { navController.navigate(Routes.CALL_HISTORY) },
                 onLogout = {
                     socketManager.disconnect()
                     navController.navigate(Routes.AUTH) {
@@ -239,6 +242,10 @@ fun AppNavigation(
                     }
                 },
             )
+        }
+
+        composable(Routes.CALL_HISTORY) {
+            CallHistoryScreen(onBack = { navController.popBackStack() })
         }
 
         composable(Routes.CALL) {

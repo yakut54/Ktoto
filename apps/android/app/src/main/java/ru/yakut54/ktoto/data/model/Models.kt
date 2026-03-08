@@ -158,3 +158,15 @@ data class CallMuteEvent(
     val muted: Boolean,
     val fromUserId: String,
 )
+
+/** One entry in call history returned by GET /api/calls/history */
+data class CallRecord(
+    val id: String,
+    val callType: String,        // "audio" | "video"
+    val endReason: String?,      // "normal" | "declined" | "cancelled" | "timeout_no_answer" | etc.
+    val durationSec: Int?,
+    val startedAt: String,
+    val answeredAt: String?,
+    val isOutgoing: Boolean,
+    val peer: UserItem,
+)

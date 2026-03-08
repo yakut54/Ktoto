@@ -84,9 +84,9 @@ async function endCall(
   redis: FastifyInstance['redis'],
   callId: string,
   reason: string,
-) {
+): Promise<CallSession | undefined> {
   const call = await getCall(redis, callId)
-  if (!call) return
+  if (!call) return undefined
   const updated: CallSession = {
     ...call,
     state: 'ended',
@@ -96,6 +96,34 @@ async function endCall(
   await redis.set(`call:${callId}`, JSON.stringify(updated), 'EX', 600)
   await redis.del(`user_call:${call.callerId}`)
   await redis.del(`user_call:${call.calleeId}`)
+  return updated
+}
+
+async function persistCallToDB(
+  app: FastifyInstance,
+  call: CallSession,
+  durationSec?: number,
+) {
+  try {
+    await app.pg.query(
+      `INSERT INTO calls (id, caller_id, callee_id, call_type, end_reason, duration_sec, started_at, answered_at, ended_at)
+       VALUES ($1,$2,$3,$4,$5,$6, to_timestamp($7/1000.0), to_timestamp($8/1000.0), to_timestamp($9/1000.0))
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        call.id,
+        call.callerId,
+        call.calleeId,
+        call.callType,
+        call.endReason ?? 'unknown',
+        durationSec ?? null,
+        call.createdAt,
+        call.answeredAt ?? null,
+        call.endedAt ?? Date.now(),
+      ],
+    )
+  } catch (e) {
+    app.log.error(e, 'persistCallToDB failed')
+  }
 }
 
 // ─── ICE candidate buffer ──────────────────────────────────────────────────
@@ -129,7 +157,8 @@ function startCallWatchdog(app: FastifyInstance) {
 
         if (reason) {
           app.log.info({ callId: call.id, reason }, 'Watchdog ending stale call')
-          await endCall(app.redis, call.id, reason)
+          const endedWatchdog = await endCall(app.redis, call.id, reason)
+          if (endedWatchdog) await persistCallToDB(app, endedWatchdog)
           const payload = { callId: call.id, reason }
           app.io.to(`user:${call.callerId}`).emit('call_force_end', payload)
           app.io.to(`user:${call.calleeId}`).emit('call_force_end', payload)
@@ -342,8 +371,9 @@ function registerCallHandlers(
       if (!call || call.calleeId !== userId) return
       if (call.state === 'ended') return
 
-      await endCall(redis, call.id, data.reason ?? 'declined')
+      const endedReject = await endCall(redis, call.id, data.reason ?? 'declined')
       iceBuffer.delete(call.id)
+      if (endedReject) await persistCallToDB(app, endedReject)
       app.io.to(`user:${call.callerId}`).emit('call_rejected', {
         callId: call.id,
         reason: data.reason ?? 'declined',
@@ -359,8 +389,9 @@ function registerCallHandlers(
       if (!call || call.callerId !== userId) return
       if (call.state === 'ended') return
 
-      await endCall(redis, call.id, data.reason ?? 'cancelled')
+      const endedCancel = await endCall(redis, call.id, data.reason ?? 'cancelled')
       iceBuffer.delete(call.id)
+      if (endedCancel) await persistCallToDB(app, endedCancel)
       app.io.to(`user:${call.calleeId}`).emit('call_cancelled', {
         callId: call.id,
         reason: data.reason ?? 'cancelled',
@@ -378,8 +409,9 @@ function registerCallHandlers(
       if (call.state === 'ended') return
 
       const reason = data.reason ?? 'normal'
-      await endCall(redis, call.id, reason)
+      const ended = await endCall(redis, call.id, reason)
       iceBuffer.delete(call.id)
+      if (ended) await persistCallToDB(app, ended, data.duration)
 
       const toUserId =
         call.callerId === userId ? call.calleeId : call.callerId
