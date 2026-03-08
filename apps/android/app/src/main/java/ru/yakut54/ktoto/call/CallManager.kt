@@ -549,30 +549,45 @@ class CallManager(
     }
 
     private fun setupLocalVideo() {
-        val factory = peerConnectionFactory ?: return
-        val egl = eglBase ?: return
+        runCatching {
+            val factory = peerConnectionFactory ?: return
+            val egl = eglBase ?: return
 
-        val enumerator = Camera2Enumerator(context)
-        val deviceName = enumerator.deviceNames
-            .firstOrNull { enumerator.isFrontFacing(it) }
-            ?: enumerator.deviceNames.firstOrNull()
-            ?: return
+            val enumerator = Camera2Enumerator(context)
+            val deviceNames = enumerator.deviceNames
+            CallLogger.i(TAG, "setupLocalVideo cameras: ${deviceNames.joinToString()}")
 
-        _isCameraFront.value = enumerator.isFrontFacing(deviceName)
+            val deviceName = deviceNames.firstOrNull { enumerator.isFrontFacing(it) }
+                ?: deviceNames.firstOrNull()
+                ?: run { CallLogger.e(TAG, "setupLocalVideo: no cameras found"); return }
 
-        surfaceTextureHelper = SurfaceTextureHelper.create("CameraThread", egl.eglBaseContext)
-        videoSource = factory.createVideoSource(false)
-        cameraCapturer = Camera2Capturer(context, deviceName, null).also { cap ->
-            cap.initialize(surfaceTextureHelper, context, videoSource!!.capturerObserver)
-            cap.startCapture(1280, 720, 30)
+            _isCameraFront.value = enumerator.isFrontFacing(deviceName)
+            CallLogger.i(TAG, "setupLocalVideo using camera: $deviceName front=${_isCameraFront.value}")
+
+            surfaceTextureHelper = SurfaceTextureHelper.create("CameraThread", egl.eglBaseContext)
+            videoSource = factory.createVideoSource(false)
+            cameraCapturer = Camera2Capturer(context, deviceName, null).also { cap ->
+                cap.initialize(surfaceTextureHelper, context, videoSource!!.capturerObserver)
+                cap.startCapture(1280, 720, 30)
+            }
+
+            localVideoTrackObj = factory.createVideoTrack("video0", videoSource).also { track ->
+                track.setEnabled(true)
+                peerConnection?.addTrack(track, listOf("stream0"))
+                _localVideoTrack.value = track
+            }
+            _isVideoEnabled.value = true
+            CallLogger.i(TAG, "setupLocalVideo OK")
+        }.onFailure { e ->
+            CallLogger.e(TAG, "setupLocalVideo FAILED: ${e.message}")
+            // Clean up partial state
+            try { cameraCapturer?.stopCapture() } catch (_: Exception) {}
+            cameraCapturer?.dispose(); cameraCapturer = null
+            surfaceTextureHelper?.dispose(); surfaceTextureHelper = null
+            videoSource?.dispose(); videoSource = null
+            // Degrade to audio-only
+            _isVideoEnabled.value = false
         }
-
-        localVideoTrackObj = factory.createVideoTrack("video0", videoSource).also { track ->
-            track.setEnabled(true)
-            peerConnection?.addTrack(track, listOf("stream0"))
-            _localVideoTrack.value = track
-        }
-        _isVideoEnabled.value = true
     }
 
     private fun createAndSendOffer() {
@@ -646,14 +661,14 @@ class CallManager(
         durationJob?.cancel()
         heartbeatJob?.cancel()
 
-        // Video cleanup
+        // Video cleanup — null state FIRST so Compose stops rendering before we free native objects
+        _localVideoTrack.value = null
+        _remoteVideoTrack.value = null
         try { cameraCapturer?.stopCapture() } catch (_: Exception) {}
         cameraCapturer?.dispose(); cameraCapturer = null
         surfaceTextureHelper?.dispose(); surfaceTextureHelper = null
         localVideoTrackObj?.dispose(); localVideoTrackObj = null
         videoSource?.dispose(); videoSource = null
-        _localVideoTrack.value = null
-        _remoteVideoTrack.value = null
 
         // Audio cleanup
         peerConnection?.dispose(); peerConnection = null

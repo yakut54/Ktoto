@@ -227,17 +227,21 @@ private fun SurfaceVideoView(
 ) {
     AndroidView(
         factory = { ctx ->
-            SurfaceViewRenderer(ctx).apply {
-                init(eglContext, null)
-                setEnableHardwareScaler(true)
-                setMirror(mirror)
-                track.addSink(this)
+            SurfaceViewRenderer(ctx).also { renderer ->
+                try {
+                    renderer.init(eglContext, null)
+                    renderer.setEnableHardwareScaler(true)
+                    renderer.setMirror(mirror)
+                    track.addSink(renderer)
+                } catch (e: Exception) {
+                    android.util.Log.e("SurfaceVideoView", "init failed: ${e.message}", e)
+                }
             }
         },
         modifier = modifier,
         onRelease = { renderer ->
-            track.removeSink(renderer)
-            renderer.release()
+            try { track.removeSink(renderer) } catch (_: Exception) {}
+            try { renderer.release() } catch (_: Exception) {}
         },
     )
 }
