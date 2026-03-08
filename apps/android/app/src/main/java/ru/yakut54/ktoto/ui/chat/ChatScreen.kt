@@ -238,7 +238,6 @@ fun ChatScreen(
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
     var showMultiDeleteConfirm by remember { mutableStateOf(false) }
     var showMultiForwardPicker by remember { mutableStateOf(false) }
-    var showMessageActions by remember { mutableStateOf<ru.yakut54.ktoto.data.model.Message?>(null) }
 
     BackHandler(enabled = selectionMode) {
         selectionMode = false
@@ -882,7 +881,8 @@ fun ChatScreen(
                             },
                             onLongClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                showMessageActions = msg
+                                selectionMode = true
+                                selectedIds = selectedIds + msg.id
                             },
                         ),
                 ) {
@@ -992,7 +992,7 @@ fun ChatScreen(
                                 message = msg,
                                 isMine = msg.sender.id == currentUserId,
                                 allMessages = messages,
-                                onLongClick = { showMessageActions = msg },
+                                onLongClick = { selectionMode = true; selectedIds = selectedIds + msg.id },
                                 onQuoteTap = { replyId ->
                                     chatScope.launch {
                                         val idx = messages.indexOfFirst { it.id == replyId }
@@ -1441,32 +1441,6 @@ fun ChatScreen(
             }
         }
     }
-
-    // ── Message actions sheet ──────────────────────────────────────────────────
-    showMessageActions?.let { actionMsg ->
-        MessageActionsSheet(
-            message = actionMsg,
-            isMine = actionMsg.sender.id == currentUserId,
-            onDismiss = { showMessageActions = null },
-            onReply = { vm.setReplyTo(actionMsg); showMessageActions = null },
-            onEdit = { vm.startEditing(actionMsg); showMessageActions = null },
-            onCopy = {
-                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("message", actionMsg.content))
-                showMessageActions = null
-            },
-            onForward = {
-                showForwardPicker = actionMsg
-                vm.loadConversationsForPicker()
-                showMessageActions = null
-            },
-            onSelect = {
-                selectionMode = true
-                selectedIds = setOf(actionMsg.id)
-                showMessageActions = null
-            },
-            onDelete = { showDeleteConfirm = actionMsg; showMessageActions = null },
-        )
-    }
 }
 
 // ── LOCKED recording bar ───────────────────────────────────────────────────────
@@ -1722,70 +1696,6 @@ private fun VoicePreviewBar(
 }
 
 // ── Attach option row ──────────────────────────────────────────────────────────
-
-// ── Message actions bottom sheet ───────────────────────────────────────────────
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun MessageActionsSheet(
-    message: ru.yakut54.ktoto.data.model.Message,
-    isMine: Boolean,
-    onDismiss: () -> Unit,
-    onReply: () -> Unit,
-    onEdit: () -> Unit,
-    onCopy: () -> Unit,
-    onForward: () -> Unit,
-    onSelect: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        dragHandle = { BottomSheetDefaults.DragHandle() },
-    ) {
-        Column(modifier = Modifier.padding(bottom = 16.dp)) {
-            MsgActionItem(Icons.AutoMirrored.Filled.Reply, "Ответить", onReply)
-            if (isMine && message.type == "text") {
-                MsgActionItem(Icons.Default.Edit, "Редактировать", onEdit)
-            }
-            if (!message.content.isNullOrBlank()) {
-                MsgActionItem(Icons.Default.ContentCopy, "Копировать", onCopy)
-            }
-            MsgActionItem(Icons.AutoMirrored.Filled.Reply, "Переслать", onForward, mirrorIcon = true)
-            MsgActionItem(Icons.Default.Done, "Выбрать", onSelect)
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            MsgActionItem(Icons.Default.Delete, "Удалить", onDelete, isDestructive = true)
-        }
-    }
-}
-
-@Composable
-private fun MsgActionItem(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    onClick: () -> Unit,
-    isDestructive: Boolean = false,
-    mirrorIcon: Boolean = false,
-) {
-    val tint = if (isDestructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = tint,
-            modifier = if (mirrorIcon) Modifier.size(24.dp).graphicsLayer { scaleX = -1f }
-                       else Modifier.size(24.dp),
-        )
-        Text(label, style = MaterialTheme.typography.bodyLarge, color = tint)
-    }
-}
 
 @Composable
 private fun AttachOption(icon: @Composable () -> Unit, label: String, onClick: () -> Unit) {
