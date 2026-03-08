@@ -979,7 +979,6 @@ fun ChatScreen(
                         } // end Column
                     }
                 }
-            }
         }
         } // end Column
     }
