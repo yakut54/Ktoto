@@ -126,6 +126,66 @@ async function persistCallToDB(
   }
 }
 
+async function insertCallMessage(
+  app: FastifyInstance,
+  call: CallSession,
+  durationSec?: number,
+) {
+  try {
+    const convRes = await app.pg.query<{ id: string }>(
+      `SELECT c.id FROM conversations c
+       JOIN conversation_participants cp1 ON cp1.conversation_id = c.id AND cp1.user_id = $1
+       JOIN conversation_participants cp2 ON cp2.conversation_id = c.id AND cp2.user_id = $2
+       WHERE c.type = 'direct'
+       LIMIT 1`,
+      [call.callerId, call.calleeId],
+    )
+    if (!convRes.rows[0]) return
+    const convId = convRes.rows[0].id
+
+    const answered = call.answeredAt != null
+    const reason = call.endReason ?? 'unknown'
+    const outcome = answered ? 'completed'
+      : reason === 'declined' ? 'declined'
+      : reason === 'cancelled' ? 'cancelled'
+      : 'missed'
+
+    const content = JSON.stringify({ callType: call.callType, duration: durationSec ?? null, outcome })
+
+    const callerRes = await app.pg.query<{ username: string; avatar_url: string | null }>(
+      'SELECT username, avatar_url FROM users WHERE id=$1', [call.callerId],
+    )
+    if (!callerRes.rows[0]) return
+
+    const msgRes = await app.pg.query<{ id: string; created_at: string }>(
+      `INSERT INTO messages (conversation_id, user_id, type, content) VALUES ($1,$2,'call',$3) RETURNING id, created_at`,
+      [convId, call.callerId, content],
+    )
+    if (!msgRes.rows[0]) return
+
+    const payload = {
+      id: msgRes.rows[0].id,
+      content,
+      type: 'call',
+      createdAt: msgRes.rows[0].created_at,
+      replyToId: null,
+      sender: { id: call.callerId, username: callerRes.rows[0].username, avatarUrl: callerRes.rows[0].avatar_url },
+      conversationId: convId,
+      attachment: null,
+      isDelivered: true,
+    }
+
+    const parts = await app.pg.query<{ user_id: string }>(
+      'SELECT user_id FROM conversation_participants WHERE conversation_id=$1', [convId],
+    )
+    for (const p of parts.rows) {
+      app.io.to(`user:${p.user_id}`).emit('new_message', payload)
+    }
+  } catch (e) {
+    app.log.error(e, 'insertCallMessage failed')
+  }
+}
+
 // ─── ICE candidate buffer ──────────────────────────────────────────────────
 
 const iceBuffer = new Map<string, Array<{ fromUserId: string; candidate: unknown }>>()
@@ -373,7 +433,10 @@ function registerCallHandlers(
 
       const endedReject = await endCall(redis, call.id, data.reason ?? 'declined')
       iceBuffer.delete(call.id)
-      if (endedReject) await persistCallToDB(app, endedReject)
+      if (endedReject) {
+        await persistCallToDB(app, endedReject)
+        await insertCallMessage(app, endedReject)
+      }
       app.io.to(`user:${call.callerId}`).emit('call_rejected', {
         callId: call.id,
         reason: data.reason ?? 'declined',
@@ -391,7 +454,10 @@ function registerCallHandlers(
 
       const endedCancel = await endCall(redis, call.id, data.reason ?? 'cancelled')
       iceBuffer.delete(call.id)
-      if (endedCancel) await persistCallToDB(app, endedCancel)
+      if (endedCancel) {
+        await persistCallToDB(app, endedCancel)
+        await insertCallMessage(app, endedCancel)
+      }
       app.io.to(`user:${call.calleeId}`).emit('call_cancelled', {
         callId: call.id,
         reason: data.reason ?? 'cancelled',
@@ -411,7 +477,10 @@ function registerCallHandlers(
       const reason = data.reason ?? 'normal'
       const ended = await endCall(redis, call.id, reason)
       iceBuffer.delete(call.id)
-      if (ended) await persistCallToDB(app, ended, data.duration)
+      if (ended) {
+        await persistCallToDB(app, ended, data.duration)
+        await insertCallMessage(app, ended, data.duration)
+      }
 
       const toUserId =
         call.callerId === userId ? call.calleeId : call.callerId

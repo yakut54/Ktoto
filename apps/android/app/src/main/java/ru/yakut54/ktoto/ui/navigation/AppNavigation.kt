@@ -245,7 +245,13 @@ fun AppNavigation(
         }
 
         composable(Routes.CALL_HISTORY) {
-            CallHistoryScreen(onBack = { navController.popBackStack() })
+            CallHistoryScreen(
+                onBack = { navController.popBackStack() },
+                onCallBack = { peerId, peerName, callType ->
+                    callVm.startCall(peerId, peerName, null, callType)
+                    navController.navigate(Routes.CALL) { launchSingleTop = true }
+                },
+            )
         }
 
         composable(Routes.CALL) {

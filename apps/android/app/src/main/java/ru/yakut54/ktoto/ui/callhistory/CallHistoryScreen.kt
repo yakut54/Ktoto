@@ -1,5 +1,6 @@
 package ru.yakut54.ktoto.ui.callhistory
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -48,7 +49,10 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CallHistoryScreen(onBack: () -> Unit) {
+fun CallHistoryScreen(
+    onBack: () -> Unit,
+    onCallBack: (peerId: String, peerName: String, callType: String) -> Unit = { _, _, _ -> },
+) {
     val vm: CallHistoryViewModel = koinViewModel()
     val records by vm.records.collectAsState()
     val loading by vm.loading.collectAsState()
@@ -81,7 +85,9 @@ fun CallHistoryScreen(onBack: () -> Unit) {
         }
         LazyColumn(modifier = Modifier.padding(padding)) {
             items(records, key = { it.id }) { record ->
-                CallHistoryItem(record)
+                CallHistoryItem(record, onClick = {
+                    onCallBack(record.peer.id, record.peer.username, record.callType)
+                })
                 HorizontalDivider(Modifier.padding(start = 72.dp))
             }
         }
@@ -89,12 +95,13 @@ fun CallHistoryScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun CallHistoryItem(record: CallRecord) {
+private fun CallHistoryItem(record: CallRecord, onClick: () -> Unit) {
     val status = callStatus(record)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

@@ -53,6 +53,7 @@ import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.automirrored.filled.PhoneMissed
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.ContentCopy
@@ -1740,6 +1741,7 @@ private fun MessageBubble(
     val replyContent = replyPreview?.content ?: replyFromHistory?.content
 
     val effectiveType = when {
+        message.type == "call" -> "call"
         message.type == "image" || message.attachment?.mimeType?.startsWith("image/") == true -> "image"
         message.type == "voice" || message.attachment?.mimeType?.startsWith("audio/") == true -> "voice"
         message.type == "file"  || (message.attachment != null && message.type !in listOf("text", null)) -> "file"
@@ -1829,6 +1831,7 @@ private fun MessageBubble(
                 "image" -> ImageBubble(message, isMine, bubbleColor, textColor, onLongClick = onLongClick)
                 "voice" -> VoiceBubble(message, isMine, textColor)
                 "file"  -> FileBubble(message, isMine, textColor)
+                "call"  -> CallMessageContent(message, textColor)
                 else -> {
                     Text(text = message.content ?: "", color = textColor)
                     Row(
@@ -2358,4 +2361,35 @@ private fun DeliveryIcon(message: ru.yakut54.ktoto.data.model.Message, textColor
         },
         modifier = Modifier.size(14.dp),
     )
+}
+
+@Composable
+private fun CallMessageContent(message: Message, textColor: androidx.compose.ui.graphics.Color) {
+    val json = runCatching { org.json.JSONObject(message.content ?: "{}") }.getOrNull()
+    val callType = json?.optString("callType", "audio") ?: "audio"
+    val duration = json?.optInt("duration", 0)?.takeIf { it > 0 }
+    val outcome = json?.optString("outcome", "missed") ?: "missed"
+
+    val (icon, label, iconTint) = when (outcome) {
+        "completed" -> Triple(
+            if (callType == "video") Icons.Default.Videocam else Icons.Default.Call,
+            (if (callType == "video") "Видео звонок" else "Аудио звонок") +
+                (duration?.let { " · ${it / 60}м ${it % 60}с" } ?: ""),
+            androidx.compose.ui.graphics.Color(0xFF4CAF50),
+        )
+        "declined" -> Triple(Icons.AutoMirrored.Filled.PhoneMissed, "Отклонённый звонок", androidx.compose.ui.graphics.Color(0xFF9E9E9E))
+        "cancelled" -> Triple(Icons.AutoMirrored.Filled.PhoneMissed, "Отменённый звонок", androidx.compose.ui.graphics.Color(0xFF9E9E9E))
+        else -> Triple(Icons.AutoMirrored.Filled.PhoneMissed, "Пропущенный звонок", androidx.compose.ui.graphics.Color(0xFFF44336))
+    }
+
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Icon(imageVector = icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp))
+        Text(text = label, color = textColor, fontSize = 14.sp)
+        Text(
+            text = formatMessageTime(message.createdAt),
+            fontSize = 10.sp,
+            color = textColor.copy(alpha = 0.6f),
+            modifier = Modifier.padding(start = 4.dp),
+        )
+    }
 }

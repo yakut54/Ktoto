@@ -134,6 +134,27 @@ CREATE INDEX IF NOT EXISTS idx_calls_caller ON calls(caller_id, started_at DESC)
 CREATE INDEX IF NOT EXISTS idx_calls_callee ON calls(callee_id, started_at DESC);
 
 -- ============================================================
+-- Extend messages.type to include 'call' (idempotent)
+-- ============================================================
+DO $$
+BEGIN
+  EXECUTE (
+    SELECT 'ALTER TABLE messages DROP CONSTRAINT ' || quote_ident(conname)
+    FROM pg_constraint
+    WHERE conrelid = 'messages'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) LIKE '%type%'
+    LIMIT 1
+  );
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+DO $$ BEGIN
+  ALTER TABLE messages ADD CONSTRAINT messages_type_check
+    CHECK (type IN ('text', 'image', 'video', 'voice', 'file', 'call'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- ============================================================
 -- AUTO updated_at TRIGGER
 -- ============================================================
 CREATE OR REPLACE FUNCTION update_updated_at()
