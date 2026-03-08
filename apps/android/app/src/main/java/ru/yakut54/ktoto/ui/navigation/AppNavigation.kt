@@ -1,6 +1,8 @@
 package ru.yakut54.ktoto.ui.navigation
 
 import android.net.Uri
+import androidx.activity.ComponentActivity
+import kotlinx.coroutines.delay
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -88,23 +90,34 @@ fun AppNavigation(
     val shareData by pendingShareData.collectAsState()
 
     val context = LocalContext.current
+    val activity = context as? ComponentActivity
     val navController = rememberNavController()
     val currentRoute by navController.currentBackStackEntryAsState()
     val callAction by pendingCallAction.collectAsState()
     val callState by callVm.callState.collectAsState()
+    var prevCallState by remember { mutableStateOf(CallState.IDLE) }
 
     fun startCallWithPermission(peerId: String, peerName: String, callType: String) {
         callVm.startCall(peerId, peerName, null, callType)
         navController.navigate(Routes.CALL) { launchSingleTop = true }
     }
 
-    // Auto-navigate to call screen when incoming call arrives
+    // Auto-navigate to call screen; return to lock screen when call ends
     LaunchedEffect(callState) {
+        val prev = prevCallState
+        prevCallState = callState
         when (callState) {
             CallState.INCOMING_RINGING, CallState.OUTGOING_RINGING -> {
                 val route = currentRoute?.destination?.route
                 if (route != Routes.CALL) {
                     navController.navigate(Routes.CALL) { launchSingleTop = true }
+                }
+            }
+            CallState.IDLE -> {
+                if (prev != CallState.IDLE) {
+                    // Let CallScreen's popBackStack() fire first, then go to background
+                    delay(150)
+                    activity?.moveTaskToBack(true)
                 }
             }
             else -> {}
@@ -131,6 +144,11 @@ fun AppNavigation(
         if (!savedToken.isNullOrEmpty()) {
             navController.navigate(Routes.CONVERSATIONS) {
                 popUpTo(Routes.AUTH) { inclusive = true }
+            }
+            // If a call arrived while we were reading the token, don't let
+            // CONVERSATIONS navigation swallow the call screen
+            if (callState == CallState.INCOMING_RINGING || callState == CallState.OUTGOING_RINGING) {
+                navController.navigate(Routes.CALL) { launchSingleTop = true }
             }
         }
     }

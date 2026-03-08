@@ -31,6 +31,8 @@ class MainActivity : ComponentActivity() {
             startPushService()
         }
 
+    private var fullScreenIntentChecked = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -70,7 +72,10 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         applyLockScreenFlags()
-        checkFullScreenIntentPermission()
+        // Don't check during call wakeup — would redirect to Settings mid-call
+        if (intent?.getStringExtra("action") !in listOf("INCOMING_CALL", "IN_CALL")) {
+            checkFullScreenIntentPermission()
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -117,6 +122,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkFullScreenIntentPermission() {
+        if (fullScreenIntentChecked) return
+        fullScreenIntentChecked = true
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             val nm = getSystemService(NotificationManager::class.java)
             if (!nm.canUseFullScreenIntent()) {
