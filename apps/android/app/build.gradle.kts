@@ -35,6 +35,12 @@ android {
     buildFeatures {
         compose = true
     }
+
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true  // android.util.Log / other stubs return 0/null instead of throwing
+        }
+    }
 }
 
 dependencies {

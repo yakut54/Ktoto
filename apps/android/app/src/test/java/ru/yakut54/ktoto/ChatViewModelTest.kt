@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+
 package ru.yakut54.ktoto
 
 import io.mockk.coEvery
@@ -9,7 +11,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -40,7 +43,8 @@ import kotlin.test.assertTrue
  */
 class ChatViewModelTest {
 
-    private val testDispatcher = StandardTestDispatcher()
+    private val testScheduler = TestCoroutineScheduler()
+    private val testDispatcher = UnconfinedTestDispatcher(testScheduler)
 
     // ── Mocks ─────────────────────────────────────────────────────────────────
 
