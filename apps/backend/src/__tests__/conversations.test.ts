@@ -308,7 +308,7 @@ describe('Conversations', () => {
       expect(rows.length).toBe(1) // orphaned record still exists
     })
 
-    it('cannot delete another user\'s message', async () => {
+    it('any participant can delete any message in conversation → 204', async () => {
       const convId = await createDirectConv(app, alice, bob.id)
       const msg = await sendMessage(app, alice, convId, 'Alice message')
 
@@ -316,7 +316,7 @@ describe('Conversations', () => {
         method: 'DELETE', url: `/api/conversations/${convId}/messages/${msg.id}`,
         headers: bearer(bob),
       })
-      expect([403, 404]).toContain(res.statusCode)
+      expect(res.statusCode).toBe(204)
     })
   })
 

@@ -119,7 +119,7 @@ describe('Security & Permissions', () => {
       expect([403, 404]).toContain(res.statusCode)
     })
 
-    it('cannot delete another user\'s message', async () => {
+    it('any participant can delete any message (by design) → 204', async () => {
       const convId = await createDirectConv(app, alice, bob.id)
       const msg = await sendMessage(app, alice, convId, 'Alice said this')
 
@@ -127,7 +127,7 @@ describe('Security & Permissions', () => {
         method: 'DELETE', url: `/api/conversations/${convId}/messages/${msg.id}`,
         headers: bearer(bob),
       })
-      expect([403, 404]).toContain(res.statusCode)
+      expect(res.statusCode).toBe(204)
     })
   })
 
