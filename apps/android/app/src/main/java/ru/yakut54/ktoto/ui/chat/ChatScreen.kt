@@ -58,8 +58,13 @@ import androidx.compose.material.icons.automirrored.filled.PhoneMissed
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.VideocamOff
+import ru.yakut54.ktoto.ui.components.DialogAction
+import ru.yakut54.ktoto.ui.components.KtotoActionDialog
+import ru.yakut54.ktoto.ui.components.KtotoDialog
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -987,66 +992,43 @@ fun ChatScreen(
     // Delete confirmation dialog — "для меня" / "для всех"
     if (showDeleteConfirm != null) {
         val msgToDelete = showDeleteConfirm!!
-        Dialog(onDismissRequest = { showDeleteConfirm = null }) {
-            Surface(shape = RoundedCornerShape(20.dp), tonalElevation = 6.dp) {
-                Column(modifier = Modifier.padding(top = 24.dp, bottom = 8.dp)) {
-                    Text(
-                        "Удалить сообщение?",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(
-                        onClick = { vm.deleteMessage(msgToDelete.id); showDeleteConfirm = null },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    ) { Text("Удалить у всех", color = MaterialTheme.colorScheme.error) }
-                    TextButton(
-                        onClick = { vm.deleteMessageForMe(msgToDelete.id); showDeleteConfirm = null },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    ) { Text("Удалить у меня", color = MaterialTheme.colorScheme.error) }
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                    TextButton(
-                        onClick = { showDeleteConfirm = null },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    ) { Text("Отмена") }
-                }
-            }
-        }
+        KtotoActionDialog(
+            title = "Удалить сообщение?",
+            actions = listOf(
+                DialogAction("Удалить у всех", isDestructive = true) {
+                    vm.deleteMessage(msgToDelete.id); showDeleteConfirm = null
+                },
+                DialogAction("Удалить у меня", isDestructive = true) {
+                    vm.deleteMessageForMe(msgToDelete.id); showDeleteConfirm = null
+                },
+            ),
+            onDismiss = { showDeleteConfirm = null },
+        )
     }
 
     // Leave conversation dialog
     if (showLeaveConfirm) {
-        AlertDialog(
-            onDismissRequest = { showLeaveConfirm = false },
-            title = { Text("Удалить чат?") },
-            text = { Text("Чат исчезнет из вашего списка. Собеседник не увидит, что вы покинули чат.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showLeaveConfirm = false
-                    vm.leaveConversation(onDone = onBack)
-                }) { Text("Удалить", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showLeaveConfirm = false }) { Text("Отмена") }
-            },
+        KtotoDialog(
+            title = "Удалить чат?",
+            message = "Чат исчезнет из вашего списка. Собеседник не увидит, что вы покинули чат.",
+            icon = Icons.Default.Delete,
+            confirmText = "Удалить",
+            confirmColor = MaterialTheme.colorScheme.error,
+            onConfirm = { showLeaveConfirm = false; vm.leaveConversation(onDone = onBack) },
+            onDismiss = { showLeaveConfirm = false },
         )
     }
 
     // Block user dialog
     if (showBlockConfirm) {
-        AlertDialog(
-            onDismissRequest = { showBlockConfirm = false },
-            title = { Text("Добавить в чёрный список?") },
-            text = { Text("Пользователь не сможет писать вам. Чат будет удалён из вашего списка.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showBlockConfirm = false
-                    vm.blockUser(onDone = onBack)
-                }) { Text("Заблокировать", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showBlockConfirm = false }) { Text("Отмена") }
-            },
+        KtotoDialog(
+            title = "Добавить в чёрный список?",
+            message = "Пользователь не сможет писать вам. Чат будет удалён из вашего списка.",
+            icon = Icons.Default.Block,
+            confirmText = "Заблокировать",
+            confirmColor = MaterialTheme.colorScheme.error,
+            onConfirm = { showBlockConfirm = false; vm.blockUser(onDone = onBack) },
+            onDismiss = { showBlockConfirm = false },
         )
     }
 
@@ -1234,79 +1216,56 @@ fun ChatScreen(
 
     // Mic: доступ отклонён — в настройки
     if (showMicSettings) {
-        AlertDialog(
-            onDismissRequest = { showMicSettings = false },
-            title = { Text("Доступ к микрофону") },
-            text = { Text("Доступ к микрофону запрещён. Разрешите его в настройках приложения.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showMicSettings = false
-                    context.startActivity(
-                        android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                            .apply { data = Uri.fromParts("package", context.packageName, null) }
-                    )
-                }) { Text("Настройки") }
+        KtotoDialog(
+            title = "Доступ к микрофону",
+            message = "Доступ к микрофону запрещён. Разрешите его в настройках приложения.",
+            icon = Icons.Default.MicOff,
+            confirmText = "Настройки",
+            onConfirm = {
+                showMicSettings = false
+                context.startActivity(
+                    android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        .apply { data = Uri.fromParts("package", context.packageName, null) }
+                )
             },
-            dismissButton = {
-                TextButton(onClick = { showMicSettings = false }) { Text("Отмена") }
-            },
+            onDismiss = { showMicSettings = false },
         )
     }
 
     // Camera: доступ отклонён — в настройки
     if (showCameraSettings) {
-        AlertDialog(
-            onDismissRequest = { showCameraSettings = false },
-            title = { Text("Доступ к камере") },
-            text = { Text("Доступ к камере запрещён. Разрешите его в настройках приложения.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showCameraSettings = false
-                    context.startActivity(
-                        android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                            .apply { data = Uri.fromParts("package", context.packageName, null) }
-                    )
-                }) { Text("Настройки") }
+        KtotoDialog(
+            title = "Доступ к камере",
+            message = "Доступ к камере запрещён. Разрешите его в настройках приложения.",
+            icon = Icons.Default.VideocamOff,
+            confirmText = "Настройки",
+            onConfirm = {
+                showCameraSettings = false
+                context.startActivity(
+                    android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        .apply { data = Uri.fromParts("package", context.packageName, null) }
+                )
             },
-            dismissButton = {
-                TextButton(onClick = { showCameraSettings = false }) { Text("Отмена") }
-            },
+            onDismiss = { showCameraSettings = false },
         )
     }
 
     // ── Multi-delete confirmation ───────────────────────────────────────────────
     if (showMultiDeleteConfirm && selectedIds.isNotEmpty()) {
-        Dialog(onDismissRequest = { showMultiDeleteConfirm = false }) {
-            Surface(shape = RoundedCornerShape(20.dp), tonalElevation = 6.dp) {
-                Column(modifier = Modifier.padding(top = 24.dp, bottom = 8.dp)) {
-                    Text(
-                        "Удалить ${selectedIds.size} сообщ.?",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(
-                        onClick = {
-                            selectedIds.toList().forEach { vm.deleteMessage(it) }
-                            showMultiDeleteConfirm = false; selectionMode = false; selectedIds = emptySet()
-                        },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    ) { Text("Удалить у всех", color = MaterialTheme.colorScheme.error) }
-                    TextButton(
-                        onClick = {
-                            selectedIds.toList().forEach { vm.deleteMessageForMe(it) }
-                            showMultiDeleteConfirm = false; selectionMode = false; selectedIds = emptySet()
-                        },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    ) { Text("Удалить у меня", color = MaterialTheme.colorScheme.error) }
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                    TextButton(
-                        onClick = { showMultiDeleteConfirm = false },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    ) { Text("Отмена") }
-                }
-            }
-        }
+        KtotoActionDialog(
+            title = "Удалить ${selectedIds.size} сообщ.?",
+            actions = listOf(
+                DialogAction("Удалить у всех", isDestructive = true) {
+                    selectedIds.toList().forEach { vm.deleteMessage(it) }
+                    showMultiDeleteConfirm = false; selectionMode = false; selectedIds = emptySet()
+                },
+                DialogAction("Удалить у меня", isDestructive = true) {
+                    selectedIds.toList().forEach { vm.deleteMessageForMe(it) }
+                    showMultiDeleteConfirm = false; selectionMode = false; selectedIds = emptySet()
+                },
+            ),
+            onDismiss = { showMultiDeleteConfirm = false },
+        )
     }
 
     // ── Multi-forward picker ────────────────────────────────────────────────────

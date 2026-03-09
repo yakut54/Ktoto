@@ -26,7 +26,6 @@ import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Phone
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,6 +39,7 @@ import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import ru.yakut54.ktoto.ui.components.KtotoDialog
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberSwipeToDismissBoxState
@@ -164,23 +164,17 @@ fun ConversationsScreen(
                     var pendingDeleteId by remember { mutableStateOf<String?>(null) }
 
                     if (pendingDeleteId != null) {
-                        AlertDialog(
-                            onDismissRequest = { pendingDeleteId = null },
-                            title = { Text("Удалить чат?") },
-                            text = { Text("Вся переписка будет удалена без возможности восстановления.") },
-                            confirmButton = {
-                                TextButton(onClick = {
-                                    vm.deleteConversation(pendingDeleteId!!)
-                                    pendingDeleteId = null
-                                }) {
-                                    Text("Удалить", color = MaterialTheme.colorScheme.error)
-                                }
+                        KtotoDialog(
+                            title = "Удалить чат?",
+                            message = "Вся переписка будет удалена без возможности восстановления.",
+                            icon = Icons.Default.Delete,
+                            confirmText = "Удалить",
+                            confirmColor = MaterialTheme.colorScheme.error,
+                            onConfirm = {
+                                vm.deleteConversation(pendingDeleteId!!)
+                                pendingDeleteId = null
                             },
-                            dismissButton = {
-                                TextButton(onClick = { pendingDeleteId = null }) {
-                                    Text("Отмена")
-                                }
-                            },
+                            onDismiss = { pendingDeleteId = null },
                         )
                     }
 
