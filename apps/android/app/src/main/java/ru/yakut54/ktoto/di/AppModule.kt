@@ -12,6 +12,7 @@ import ru.yakut54.ktoto.ui.call.CallViewModel
 import ru.yakut54.ktoto.ui.chat.ChatViewModel
 import ru.yakut54.ktoto.ui.conversations.ConversationsViewModel
 import ru.yakut54.ktoto.ui.callhistory.CallHistoryViewModel
+import ru.yakut54.ktoto.ui.groupinfo.GroupInfoViewModel
 import ru.yakut54.ktoto.ui.newchat.CreateGroupViewModel
 import ru.yakut54.ktoto.ui.newchat.NewChatViewModel
 
@@ -29,6 +30,7 @@ val appModule = module {
     viewModel { ChatViewModel(get(), get(), get()) }
     viewModel { NewChatViewModel(get(), get()) }
     viewModel { CreateGroupViewModel(get(), get()) }
+    viewModel { GroupInfoViewModel(get(), get()) }
     viewModel { CallViewModel(get()) }
     viewModel { CallHistoryViewModel(get(), get()) }
 }

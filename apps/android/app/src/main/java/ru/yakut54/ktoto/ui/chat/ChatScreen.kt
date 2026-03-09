@@ -167,6 +167,7 @@ fun ChatScreen(
     onBack: () -> Unit,
     onNavigateToChat: (convId: String, convName: String) -> Unit = { _, _ -> },
     onStartCall: ((callType: String) -> Unit)? = null,
+    onGroupInfo: ((currentName: String) -> Unit)? = null,
     sharePayload: SharePayload? = null,
     onShareConsumed: () -> Unit = {},
 ) {
@@ -352,7 +353,11 @@ fun ChatScreen(
             } else {
                 TopAppBar(
                     title = {
-                        Column {
+                        Column(
+                            modifier = if (onGroupInfo != null) {
+                                Modifier.clickable { onGroupInfo(conversationName) }
+                            } else Modifier,
+                        ) {
                             Text(conversationName, style = MaterialTheme.typography.titleMedium)
                             when {
                                 isTyping -> Text(
@@ -364,6 +369,11 @@ fun ChatScreen(
                                     "онлайн",
                                     fontSize = 12.sp,
                                     color = androidx.compose.ui.graphics.Color(0xFF4CAF50),
+                                )
+                                onGroupInfo != null -> Text(
+                                    "нажмите для информации",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }

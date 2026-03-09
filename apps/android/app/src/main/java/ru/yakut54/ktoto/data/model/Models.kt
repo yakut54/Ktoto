@@ -106,6 +106,17 @@ data class CreateConversationRequest(
 
 data class RefreshResponse(val accessToken: String, val refreshToken: String)
 
+data class GroupMember(
+    val id: String,
+    val username: String,
+    val avatarUrl: String?,
+    val role: String, // "admin" | "member"
+)
+
+data class AddMemberRequest(val userId: String)
+data class RenameGroupRequest(val name: String)
+data class ChangeRoleRequest(val role: String)
+
 // ─── Call models ──────────────────────────────────────────────────────────────
 
 data class IceServerConfig(

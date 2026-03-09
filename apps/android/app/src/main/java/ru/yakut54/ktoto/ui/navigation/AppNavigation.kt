@@ -52,6 +52,7 @@ import ru.yakut54.ktoto.ui.call.CallViewModel
 import ru.yakut54.ktoto.ui.callhistory.CallHistoryScreen
 import ru.yakut54.ktoto.ui.chat.ChatScreen
 import ru.yakut54.ktoto.ui.conversations.ConversationsScreen
+import ru.yakut54.ktoto.ui.groupinfo.GroupInfoScreen
 import ru.yakut54.ktoto.ui.newchat.CreateGroupScreen
 import ru.yakut54.ktoto.ui.newchat.NewChatScreen
 
@@ -69,9 +70,13 @@ object Routes {
     const val CHAT = "chat/{convId}/{convName}/{userId}/{otherId}"
     const val CALL = "call"
     const val CALL_HISTORY = "call_history"
+    const val GROUP_INFO = "group_info/{convId}/{convName}/{userId}"
 
     fun chat(convId: String, convName: String, userId: String, otherId: String = "") =
         "chat/$convId/${convName.ifBlank { "Чат" }}/$userId/${otherId.ifBlank { "_" }}"
+
+    fun groupInfo(convId: String, convName: String, userId: String) =
+        "group_info/$convId/$convName/$userId"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -322,6 +327,7 @@ fun AppNavigation(
             val convName = back.arguments?.getString("convName") ?: ""
             val userId = back.arguments?.getString("userId") ?: ""
             val otherId = back.arguments?.getString("otherId")?.takeIf { it != "_" } ?: ""
+            val isGroup = otherId.isBlank()
             ChatScreen(
                 conversationId = convId,
                 conversationName = convName,
@@ -334,8 +340,36 @@ fun AppNavigation(
                 onStartCall = if (otherId.isNotBlank()) { callType ->
                     startCallWithPermission(otherId, convName, callType)
                 } else null,
+                onGroupInfo = if (isGroup) {
+                    { name -> navController.navigate(Routes.groupInfo(convId, name, userId)) }
+                } else null,
                 sharePayload = shareData,
                 onShareConsumed = { (pendingShareData as? MutableStateFlow)?.value = null },
+            )
+        }
+
+        composable(
+            route = Routes.GROUP_INFO,
+            arguments = listOf(
+                navArgument("convId") { type = NavType.StringType },
+                navArgument("convName") { type = NavType.StringType },
+                navArgument("userId") { type = NavType.StringType },
+            ),
+        ) { back ->
+            val convId = back.arguments?.getString("convId") ?: return@composable
+            val convName = back.arguments?.getString("convName") ?: ""
+            val userId = back.arguments?.getString("userId") ?: ""
+            GroupInfoScreen(
+                conversationId = convId,
+                conversationName = convName,
+                currentUserId = userId,
+                onBack = { navController.popBackStack() },
+                onLeft = {
+                    navController.navigate(Routes.CONVERSATIONS) {
+                        popUpTo(0) { inclusive = false }
+                    }
+                },
+                onNameChanged = { /* name updated in GroupInfoScreen state */ },
             )
         }
     }

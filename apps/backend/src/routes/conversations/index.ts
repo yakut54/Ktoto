@@ -11,6 +11,23 @@ interface CreateConversationBody {
   memberIds?: string[] // group: other participants
 }
 
+interface GroupMemberParams {
+  id: string
+  userId: string
+}
+
+interface RenameGroupBody {
+  name: string
+}
+
+interface AddMemberBody {
+  userId: string
+}
+
+interface ChangeRoleBody {
+  role: 'admin' | 'member'
+}
+
 interface SendMessageBody {
   content?: string
   type?: 'text'
@@ -763,6 +780,161 @@ export async function conversationRoutes(app: FastifyInstance) {
 
     reply.status(204)
   })
+
+  // ----------------------------------------------------------------
+  // GET /api/conversations/:id/members  — participant list with roles
+  // ----------------------------------------------------------------
+  app.get<{ Params: MessageParams }>('/:id/members', async (request, reply) => {
+    const { userId } = request.user
+    const { id: convId } = request.params
+
+    const access = await app.pg.query(
+      `SELECT 1 FROM conversation_participants WHERE conversation_id=$1 AND user_id=$2`,
+      [convId, userId],
+    )
+    if (!access.rows[0]) return reply.status(403).send({ error: 'Forbidden' })
+
+    const { rows } = await app.pg.query<{
+      id: string
+      username: string
+      avatar_url: string | null
+      role: string
+    }>(
+      `SELECT u.id, u.username, u.avatar_url, cp.role
+       FROM conversation_participants cp
+       JOIN users u ON u.id = cp.user_id
+       WHERE cp.conversation_id = $1
+       ORDER BY cp.role DESC, u.username ASC`,
+      [convId],
+    )
+
+    return rows.map((r) => ({
+      id: r.id,
+      username: r.username,
+      avatarUrl: r.avatar_url,
+      role: r.role,
+    }))
+  })
+
+  // ----------------------------------------------------------------
+  // POST /api/conversations/:id/members  — add member (admin only)
+  // ----------------------------------------------------------------
+  app.post<{ Params: MessageParams; Body: AddMemberBody }>('/:id/members', async (request, reply) => {
+    const { userId } = request.user
+    const { id: convId } = request.params
+    const { userId: newUserId } = request.body
+
+    if (!newUserId) return reply.status(400).send({ error: 'userId required' })
+
+    const adminCheck = await app.pg.query(
+      `SELECT role FROM conversation_participants WHERE conversation_id=$1 AND user_id=$2`,
+      [convId, userId],
+    )
+    if (!adminCheck.rows[0]) return reply.status(403).send({ error: 'Forbidden' })
+    if (adminCheck.rows[0].role !== 'admin') return reply.status(403).send({ error: 'Admin only' })
+
+    await app.pg.query(
+      `INSERT INTO conversation_participants (conversation_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [convId, newUserId],
+    )
+
+    // Notify new member so they see the group
+    app.io.to(`user:${newUserId}`).emit('new_conversation', { conversationId: convId })
+
+    reply.status(201)
+    return {}
+  })
+
+  // ----------------------------------------------------------------
+  // DELETE /api/conversations/:id/members/:userId  — remove member or leave
+  // Admin can remove anyone; member can only remove self (leave)
+  // ----------------------------------------------------------------
+  app.delete<{ Params: GroupMemberParams }>('/:id/members/:userId', async (request, reply) => {
+    const { userId: requesterId } = request.user
+    const { id: convId, userId: targetId } = request.params
+
+    const requesterRow = await app.pg.query<{ role: string }>(
+      `SELECT role FROM conversation_participants WHERE conversation_id=$1 AND user_id=$2`,
+      [convId, requesterId],
+    )
+    if (!requesterRow.rows[0]) return reply.status(403).send({ error: 'Forbidden' })
+
+    const isAdmin = requesterRow.rows[0].role === 'admin'
+    const isSelf = requesterId === targetId
+
+    if (!isSelf && !isAdmin) return reply.status(403).send({ error: 'Admin only' })
+
+    await app.pg.query(
+      `DELETE FROM conversation_participants WHERE conversation_id=$1 AND user_id=$2`,
+      [convId, targetId],
+    )
+
+    reply.status(204)
+    return
+  })
+
+  // ----------------------------------------------------------------
+  // PATCH /api/conversations/:id  — rename group (admin only)
+  // ----------------------------------------------------------------
+  app.patch<{ Params: MessageParams; Body: RenameGroupBody }>('/:id', async (request, reply) => {
+    const { userId } = request.user
+    const { id: convId } = request.params
+    const { name } = request.body
+
+    if (!name?.trim()) return reply.status(400).send({ error: 'name required' })
+
+    const adminCheck = await app.pg.query<{ role: string; type: string }>(
+      `SELECT cp.role, c.type FROM conversation_participants cp
+       JOIN conversations c ON c.id = cp.conversation_id
+       WHERE cp.conversation_id=$1 AND cp.user_id=$2`,
+      [convId, userId],
+    )
+    if (!adminCheck.rows[0]) return reply.status(403).send({ error: 'Forbidden' })
+    if (adminCheck.rows[0].type !== 'group') return reply.status(400).send({ error: 'Groups only' })
+    if (adminCheck.rows[0].role !== 'admin') return reply.status(403).send({ error: 'Admin only' })
+
+    await app.pg.query(`UPDATE conversations SET name=$1 WHERE id=$2`, [name.trim(), convId])
+
+    // Notify all members
+    const parts = await app.pg.query<{ user_id: string }>(
+      `SELECT user_id FROM conversation_participants WHERE conversation_id=$1`, [convId],
+    )
+    for (const p of parts.rows) {
+      app.io.to(`user:${p.user_id}`).emit('group_updated', { conversationId: convId, name: name.trim() })
+    }
+
+    return { name: name.trim() }
+  })
+
+  // ----------------------------------------------------------------
+  // PATCH /api/conversations/:id/members/:userId/role  — change role (admin only)
+  // ----------------------------------------------------------------
+  app.patch<{ Params: GroupMemberParams; Body: ChangeRoleBody }>(
+    '/:id/members/:userId/role',
+    async (request, reply) => {
+      const { userId: requesterId } = request.user
+      const { id: convId, userId: targetId } = request.params
+      const { role } = request.body
+
+      if (!role || !['admin', 'member'].includes(role)) {
+        return reply.status(400).send({ error: 'role must be admin or member' })
+      }
+
+      const adminCheck = await app.pg.query<{ role: string }>(
+        `SELECT role FROM conversation_participants WHERE conversation_id=$1 AND user_id=$2`,
+        [convId, requesterId],
+      )
+      if (!adminCheck.rows[0]) return reply.status(403).send({ error: 'Forbidden' })
+      if (adminCheck.rows[0].role !== 'admin') return reply.status(403).send({ error: 'Admin only' })
+
+      await app.pg.query(
+        `UPDATE conversation_participants SET role=$1 WHERE conversation_id=$2 AND user_id=$3`,
+        [role, convId, targetId],
+      )
+
+      return { role }
+    },
+  )
 
   // ----------------------------------------------------------------
   // DELETE /api/conversations/:id/messages/:msgId  — soft-delete

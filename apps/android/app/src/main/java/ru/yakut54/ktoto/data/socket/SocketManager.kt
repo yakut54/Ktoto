@@ -51,6 +51,10 @@ class SocketManager {
     private val _newConversation = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val newConversation: SharedFlow<String> = _newConversation.asSharedFlow()
 
+    /** Fired when group is renamed — Pair(convId, newName) */
+    private val _groupUpdated = MutableSharedFlow<Pair<String, String>>(extraBufferCapacity = 8)
+    val groupUpdated: SharedFlow<Pair<String, String>> = _groupUpdated.asSharedFlow()
+
     /** Set of user IDs currently online */
     private val _onlineUsers = MutableStateFlow<Set<String>>(emptySet())
     val onlineUsers: StateFlow<Set<String>> = _onlineUsers.asStateFlow()
@@ -169,6 +173,14 @@ class SocketManager {
                     val obj = gson.fromJson(args[0].toString(), Map::class.java)
                     val convId = obj["conversationId"] as? String ?: return@runCatching
                     _newConversation.tryEmit(convId)
+                }
+            }
+            on("group_updated") { args ->
+                runCatching {
+                    val obj = gson.fromJson(args[0].toString(), Map::class.java)
+                    val convId = obj["conversationId"] as? String ?: return@runCatching
+                    val name = obj["name"] as? String ?: return@runCatching
+                    _groupUpdated.tryEmit(convId to name)
                 }
             }
 

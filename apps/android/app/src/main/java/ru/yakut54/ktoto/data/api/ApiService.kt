@@ -17,14 +17,19 @@ import retrofit2.http.PUT
 import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.DELETE
+import ru.yakut54.ktoto.data.model.AddMemberRequest
 import ru.yakut54.ktoto.data.model.AuthResponse
+import ru.yakut54.ktoto.data.model.ChangeRoleRequest
 import ru.yakut54.ktoto.data.model.Conversation
 import ru.yakut54.ktoto.data.model.FcmTokenRequest
 import ru.yakut54.ktoto.data.model.CreateConversationRequest
 import ru.yakut54.ktoto.data.model.EditMessageRequest
+import ru.yakut54.ktoto.data.model.GroupMember
 import ru.yakut54.ktoto.data.model.LoginRequest
 import ru.yakut54.ktoto.data.model.Message
 import ru.yakut54.ktoto.data.model.RegisterRequest
+import ru.yakut54.ktoto.data.model.RenameGroupRequest
 import ru.yakut54.ktoto.data.model.SendMessageRequest
 import ru.yakut54.ktoto.data.model.CallRecord
 import ru.yakut54.ktoto.data.model.TurnCredentials
@@ -122,6 +127,41 @@ interface ApiService {
         @Header("Authorization") token: String,
         @Body body: FcmTokenRequest,
     )
+
+    @GET("api/conversations/{id}/members")
+    suspend fun getGroupMembers(
+        @Header("Authorization") token: String,
+        @Path("id") conversationId: String,
+    ): List<GroupMember>
+
+    @POST("api/conversations/{id}/members")
+    suspend fun addGroupMember(
+        @Header("Authorization") token: String,
+        @Path("id") conversationId: String,
+        @Body body: AddMemberRequest,
+    )
+
+    @HTTP(method = "DELETE", path = "api/conversations/{id}/members/{userId}", hasBody = false)
+    suspend fun removeGroupMember(
+        @Header("Authorization") token: String,
+        @Path("id") conversationId: String,
+        @Path("userId") userId: String,
+    )
+
+    @PATCH("api/conversations/{id}")
+    suspend fun renameGroup(
+        @Header("Authorization") token: String,
+        @Path("id") conversationId: String,
+        @Body body: RenameGroupRequest,
+    ): Map<String, Any>
+
+    @PATCH("api/conversations/{id}/members/{userId}/role")
+    suspend fun changeGroupMemberRole(
+        @Header("Authorization") token: String,
+        @Path("id") conversationId: String,
+        @Path("userId") userId: String,
+        @Body body: ChangeRoleRequest,
+    ): Map<String, Any>
 }
 
 fun buildApiService(baseUrl: String, tokenStore: TokenStore): ApiService {
