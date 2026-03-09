@@ -16,7 +16,7 @@ export async function setup() {
 
   try {
     await client.connect()
-    const schema = readFileSync(join(__dirname, '../../../db/schema.sql'), 'utf-8')
+    const schema = readFileSync(join(__dirname, '../../db/schema.sql'), 'utf-8')
     await client.query(schema)
     console.log('[globalSetup] Schema applied to ktoto_test')
   } catch (err) {
