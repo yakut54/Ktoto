@@ -30,9 +30,12 @@ const mockS3Plugin = fp(async (app: FastifyInstance) => {
  * Routes still call app.io.to(...).emit(...) but those are no-ops here.
  */
 const mockSocketPlugin = fp(async (app: FastifyInstance) => {
-  const io = new Server() // no HTTP server attached → no connections possible
+  // Plain object mock — no real server, no teardown errors
+  const io = {
+    to: () => ({ emit: () => {} }),
+    emit: () => {},
+  } as unknown as Server
   app.decorate('io', io)
-  app.addHook('onClose', async () => { try { io.close() } catch { /* no http server attached */ } })
 })
 
 export async function buildTestApp(): Promise<FastifyInstance> {
