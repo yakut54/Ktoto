@@ -32,7 +32,7 @@ const mockS3Plugin = fp(async (app: FastifyInstance) => {
 const mockSocketPlugin = fp(async (app: FastifyInstance) => {
   const io = new Server() // no HTTP server attached → no connections possible
   app.decorate('io', io)
-  app.addHook('onClose', async () => { io.close() })
+  app.addHook('onClose', async () => { try { io.close() } catch { /* no http server attached */ } })
 })
 
 export async function buildTestApp(): Promise<FastifyInstance> {

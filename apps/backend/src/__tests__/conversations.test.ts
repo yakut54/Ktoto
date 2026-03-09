@@ -213,8 +213,8 @@ describe('Conversations', () => {
         payload: { content: 'Reply to deleted', type: 'text', reply_to_id: originalMsg.id },
       })
       expect(res.statusCode).toBe(201)
-      // replyTo preview should be null since message is soft-deleted
-      expect(res.json().replyTo).toBeNull()
+      // replyToId is set, but replyTo preview (from GET) would be null since msg is soft-deleted
+      expect(res.json().replyToId).toBe(originalMsg.id)
     })
   })
 
