@@ -32,6 +32,7 @@ class MainActivity : ComponentActivity() {
         }
 
     private var fullScreenIntentChecked = false
+    private var overlayPermissionChecked = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -75,6 +76,7 @@ class MainActivity : ComponentActivity() {
         // Don't check during call wakeup — would redirect to Settings mid-call
         if (intent?.getStringExtra("action") !in listOf("INCOMING_CALL", "IN_CALL")) {
             checkFullScreenIntentPermission()
+            checkOverlayPermission()
         }
     }
 
@@ -117,6 +119,22 @@ class MainActivity : ComponentActivity() {
             window.addFlags(
                 WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
                     WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
+            )
+        }
+    }
+
+    /** Requests SYSTEM_ALERT_WINDOW permission (needed for the incoming-call overlay
+     *  when screen is on). Without it the overlay is skipped and we fall back to
+     *  startActivity which restrictive OEM ROMs (HiOS, MIUI) may block. */
+    private fun checkOverlayPermission() {
+        if (overlayPermissionChecked) return
+        overlayPermissionChecked = true
+        if (!Settings.canDrawOverlays(this)) {
+            startActivity(
+                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                    data = Uri.parse("package:$packageName")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
             )
         }
     }
