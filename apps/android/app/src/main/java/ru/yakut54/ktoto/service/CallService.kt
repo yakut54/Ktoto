@@ -93,6 +93,20 @@ class CallService : Service() {
                 } else {
                     startForeground(NOTIF_ID, notification)
                 }
+
+                // On unlocked screen Android suppresses fullScreenIntent and shows
+                // a heads-up notification instead. Bring MainActivity to foreground
+                // directly so the call screen appears immediately.
+                if (state == CallState.INCOMING_RINGING) {
+                    startActivity(
+                        Intent(this, MainActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                                Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                                Intent.FLAG_ACTIVITY_CLEAR_TOP
+                            putExtra("action", "INCOMING_CALL")
+                        }
+                    )
+                }
             }
         }
         return START_STICKY
