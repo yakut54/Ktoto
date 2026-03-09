@@ -31,7 +31,9 @@ jobs:
 
       - name: Run unit tests
         working-directory: apps/android
-        run: ./gradlew :app:testDebugUnitTest --no-daemon
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest --no-daemon
 
       - name: Upload test results
         if: always()
