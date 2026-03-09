@@ -1,5 +1,8 @@
 package ru.yakut54.ktoto.ui.groupinfo
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -19,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Group
@@ -48,11 +52,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import coil3.compose.AsyncImage
 import org.koin.androidx.compose.koinViewModel
 import ru.yakut54.ktoto.data.model.GroupMember
 import ru.yakut54.ktoto.ui.components.DialogAction
@@ -76,6 +84,13 @@ fun GroupInfoScreen(
     val saving by vm.saving.collectAsState()
     val searchUsers by vm.searchUsers.collectAsState()
     val searching by vm.searching.collectAsState()
+    val avatarUrl by vm.avatarUrl.collectAsState()
+    val uploadingAvatar by vm.uploadingAvatar.collectAsState()
+    val context = LocalContext.current
+
+    val avatarPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri -> uri?.let { vm.uploadAvatar(context, conversationId, it) } }
 
     LaunchedEffect(conversationId) { vm.load(conversationId, conversationName) }
 
@@ -279,15 +294,62 @@ fun GroupInfoScreen(
                     Box(
                         modifier = Modifier
                             .size(96.dp)
-                            .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                            .then(
+                                if (isAdmin) Modifier.clickable {
+                                    avatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                } else Modifier
+                            ),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(
-                            Icons.Default.Group,
-                            contentDescription = null,
-                            modifier = Modifier.size(52.dp),
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
+                        if (avatarUrl != null) {
+                            AsyncImage(
+                                model = avatarUrl,
+                                contentDescription = convName,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(96.dp)
+                                    .clip(CircleShape),
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(96.dp)
+                                    .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Default.Group,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(52.dp),
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                )
+                            }
+                        }
+                        // Camera overlay for admin
+                        if (isAdmin) {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .align(Alignment.BottomEnd)
+                                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (uploadingAvatar) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = Color.White,
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Default.AddAPhoto,
+                                        contentDescription = "Загрузить фото",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            }
+                        }
                     }
                     Spacer(Modifier.height(12.dp))
                     Text(

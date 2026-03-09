@@ -61,6 +61,31 @@ async function streamToBuffer(stream: Readable): Promise<Buffer> {
   return Buffer.concat(chunks)
 }
 
+async function insertSystemMessage(app: FastifyInstance, convId: string, content: string) {
+  const { rows } = await app.pg.query<{ id: string; created_at: string }>(
+    `INSERT INTO messages (conversation_id, type, content) VALUES ($1, 'system', $2) RETURNING id, created_at`,
+    [convId, content],
+  )
+  if (!rows[0]) return
+  const payload = {
+    id: rows[0].id,
+    content,
+    type: 'system',
+    createdAt: rows[0].created_at,
+    replyToId: null,
+    sender: { id: '', username: '', avatarUrl: null },
+    conversationId: convId,
+    attachment: null,
+    isDelivered: true,
+  }
+  const parts = await app.pg.query<{ user_id: string }>(
+    `SELECT user_id FROM conversation_participants WHERE conversation_id=$1`, [convId],
+  )
+  for (const p of parts.rows) {
+    app.io.to(`user:${p.user_id}`).emit('new_message', payload)
+  }
+}
+
 export async function conversationRoutes(app: FastifyInstance) {
   app.addHook('onRequest', app.authenticate)
 
@@ -217,6 +242,8 @@ export async function conversationRoutes(app: FastifyInstance) {
       for (const memberId of members) {
         app.io.to(`user:${memberId}`).emit('new_conversation', { conversationId: convId })
       }
+      // System message: group created
+      await insertSystemMessage(app, convId, `Группа «${name}» создана`)
       reply.status(201)
       return { id: convId, existed: false }
     } catch (e) {
@@ -841,6 +868,12 @@ export async function conversationRoutes(app: FastifyInstance) {
     // Notify new member so they see the group
     app.io.to(`user:${newUserId}`).emit('new_conversation', { conversationId: convId })
 
+    // System message
+    const newUser = await app.pg.query<{ username: string }>(`SELECT username FROM users WHERE id=$1`, [newUserId])
+    if (newUser.rows[0]) {
+      await insertSystemMessage(app, convId, `${newUser.rows[0].username} добавлен в группу`)
+    }
+
     reply.status(201)
     return {}
   })
@@ -864,10 +897,17 @@ export async function conversationRoutes(app: FastifyInstance) {
 
     if (!isSelf && !isAdmin) return reply.status(403).send({ error: 'Admin only' })
 
+    const targetUser = await app.pg.query<{ username: string }>(`SELECT username FROM users WHERE id=$1`, [targetId])
+    const targetName = targetUser.rows[0]?.username ?? 'Участник'
+
     await app.pg.query(
       `DELETE FROM conversation_participants WHERE conversation_id=$1 AND user_id=$2`,
       [convId, targetId],
     )
+
+    // System message: left or removed
+    const text = isSelf ? `${targetName} покинул группу` : `${targetName} удалён из группы`
+    await insertSystemMessage(app, convId, text)
 
     reply.status(204)
     return
@@ -903,6 +943,9 @@ export async function conversationRoutes(app: FastifyInstance) {
       app.io.to(`user:${p.user_id}`).emit('group_updated', { conversationId: convId, name: name.trim() })
     }
 
+    // System message
+    await insertSystemMessage(app, convId, `Группа переименована: «${name.trim()}»`)
+
     return { name: name.trim() }
   })
 
@@ -935,6 +978,59 @@ export async function conversationRoutes(app: FastifyInstance) {
       return { role }
     },
   )
+
+  // ----------------------------------------------------------------
+  // POST /api/conversations/:id/avatar  — upload group avatar (admin only)
+  // ----------------------------------------------------------------
+  app.post<{ Params: MessageParams }>('/:id/avatar', async (request, reply) => {
+    const { userId } = request.user
+    const { id: convId } = request.params
+
+    const adminCheck = await app.pg.query<{ role: string; type: string }>(
+      `SELECT cp.role, c.type FROM conversation_participants cp
+       JOIN conversations c ON c.id = cp.conversation_id
+       WHERE cp.conversation_id=$1 AND cp.user_id=$2`,
+      [convId, userId],
+    )
+    if (!adminCheck.rows[0]) return reply.status(403).send({ error: 'Forbidden' })
+    if (adminCheck.rows[0].type !== 'group') return reply.status(400).send({ error: 'Groups only' })
+    if (adminCheck.rows[0].role !== 'admin') return reply.status(403).send({ error: 'Admin only' })
+
+    const parts = request.parts()
+    let fileBuffer: Buffer | null = null
+    let mimeType = 'image/jpeg'
+
+    for await (const part of parts) {
+      if (part.type === 'file') {
+        fileBuffer = await streamToBuffer(part.file)
+        mimeType = part.mimetype
+      }
+    }
+
+    if (!fileBuffer) return reply.status(400).send({ error: 'No file' })
+
+    // Resize to 256x256 square
+    const resized = await sharp(fileBuffer)
+      .resize(256, 256, { fit: 'cover' })
+      .jpeg({ quality: 85 })
+      .toBuffer()
+
+    const s3Key = `avatars/groups/${convId}.jpg`
+    await app.s3.upload(s3Key, resized, 'image/jpeg')
+    const avatarUrl = await app.s3.presignedUrl(s3Key)
+
+    await app.pg.query(`UPDATE conversations SET avatar_url=$1 WHERE id=$2`, [s3Key, convId])
+
+    // Notify all members
+    const members = await app.pg.query<{ user_id: string }>(
+      `SELECT user_id FROM conversation_participants WHERE conversation_id=$1`, [convId],
+    )
+    for (const p of members.rows) {
+      app.io.to(`user:${p.user_id}`).emit('group_updated', { conversationId: convId, avatarUrl })
+    }
+
+    return { avatarUrl }
+  })
 
   // ----------------------------------------------------------------
   // DELETE /api/conversations/:id/messages/:msgId  — soft-delete

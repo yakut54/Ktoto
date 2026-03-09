@@ -1,11 +1,16 @@
 package ru.yakut54.ktoto.ui.groupinfo
 
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import ru.yakut54.ktoto.data.api.ApiService
 import ru.yakut54.ktoto.data.model.AddMemberRequest
 import ru.yakut54.ktoto.data.model.ChangeRoleRequest
@@ -37,6 +42,12 @@ class GroupInfoViewModel(
 
     private val _convName = MutableStateFlow("")
     val convName: StateFlow<String> = _convName
+
+    private val _avatarUrl = MutableStateFlow<String?>(null)
+    val avatarUrl: StateFlow<String?> = _avatarUrl
+
+    private val _uploadingAvatar = MutableStateFlow(false)
+    val uploadingAvatar: StateFlow<Boolean> = _uploadingAvatar
 
     private val _saving = MutableStateFlow(false)
     val saving: StateFlow<Boolean> = _saving
@@ -122,6 +133,22 @@ class GroupInfoViewModel(
                 _searchUsers.value = api.searchUsers("Bearer $token", query)
             }
             _searching.value = false
+        }
+    }
+
+    fun uploadAvatar(context: Context, convId: String, uri: Uri) {
+        viewModelScope.launch {
+            _uploadingAvatar.value = true
+            runCatching {
+                val token = tokenStore.accessToken.first() ?: return@launch
+                val bytes = context.contentResolver.openInputStream(uri)?.readBytes() ?: return@launch
+                val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
+                val body = bytes.toRequestBody(mime.toMediaTypeOrNull())
+                val part = MultipartBody.Part.createFormData("file", "avatar.jpg", body)
+                val result = api.uploadGroupAvatar("Bearer $token", convId, part)
+                _avatarUrl.value = result["avatarUrl"] as? String
+            }
+            _uploadingAvatar.value = false
         }
     }
 

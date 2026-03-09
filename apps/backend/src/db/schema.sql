@@ -153,7 +153,7 @@ EXCEPTION WHEN OTHERS THEN NULL;
 END $$;
 DO $$ BEGIN
   ALTER TABLE messages ADD CONSTRAINT messages_type_check
-    CHECK (type IN ('text', 'image', 'video', 'voice', 'file', 'call'));
+    CHECK (type IN ('text', 'image', 'video', 'voice', 'file', 'call', 'system'));
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 

@@ -155,6 +155,14 @@ interface ApiService {
         @Body body: RenameGroupRequest,
     ): Map<String, Any>
 
+    @Multipart
+    @POST("api/conversations/{id}/avatar")
+    suspend fun uploadGroupAvatar(
+        @Header("Authorization") token: String,
+        @Path("id") conversationId: String,
+        @Part file: MultipartBody.Part,
+    ): Map<String, Any>
+
     @PATCH("api/conversations/{id}/members/{userId}/role")
     suspend fun changeGroupMemberRole(
         @Header("Authorization") token: String,

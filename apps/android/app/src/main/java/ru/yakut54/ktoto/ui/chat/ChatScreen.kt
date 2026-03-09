@@ -156,6 +156,7 @@ import ru.yakut54.ktoto.data.model.Attachment
 import ru.yakut54.ktoto.data.model.Message
 import ru.yakut54.ktoto.ui.navigation.SharePayload
 import ru.yakut54.ktoto.utils.formatMessageTime
+import ru.yakut54.ktoto.utils.nameToAvatarColor
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -432,6 +433,29 @@ fun ChatScreen(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             items(messages, key = { it.id }) { msg ->
+                // ── System messages (centered pill, no interaction) ─────────
+                if (msg.type == "system") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .animateItem()
+                            .padding(vertical = 4.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = msg.content.orEmpty(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .background(
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                    RoundedCornerShape(12.dp),
+                                )
+                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                        )
+                    }
+                    return@items
+                }
                 val swipeOffset = remember { Animatable(0f) }
                 val swipeScope = rememberCoroutineScope()
                 val haptic = LocalHapticFeedback.current
@@ -565,6 +589,7 @@ fun ChatScreen(
                                 else Modifier
                             ),
                     ) {
+                        val isGroup = otherUserId.isBlank()
                         if (selectionMode) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -578,6 +603,7 @@ fun ChatScreen(
                                     message = msg,
                                     isMine = msg.sender.id == currentUserId,
                                     allMessages = messages,
+                                    isGroup = isGroup,
                                     onLongClick = {},
                                 )
                             }
@@ -586,6 +612,7 @@ fun ChatScreen(
                                 message = msg,
                                 isMine = msg.sender.id == currentUserId,
                                 allMessages = messages,
+                                isGroup = isGroup,
                                 onLongClick = { selectionMode = true; selectedIds = selectedIds + msg.id },
                                 onQuoteTap = { replyId ->
                                     chatScope.launch {
@@ -1624,6 +1651,7 @@ private fun MessageBubble(
     message: Message,
     isMine: Boolean,
     allMessages: List<Message> = emptyList(),
+    isGroup: Boolean = false,
     onLongClick: () -> Unit = {},
     onQuoteTap: ((String) -> Unit)? = null,
     onCallBack: ((callType: String) -> Unit)? = null,
@@ -1663,6 +1691,20 @@ private fun MessageBubble(
         horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Column(
+            modifier = Modifier
+                .widthIn(min = if (effectiveType == "image") 0.dp else minBubbleWidth, max = maxBubbleWidth),
+        ) {
+        // Sender name for group chats (non-mine messages only)
+        if (isGroup && !isMine) {
+            Text(
+                text = message.sender.username,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = nameToAvatarColor(message.sender.username),
+                modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
+            )
+        }
         Column(
             modifier = Modifier
                 .widthIn(min = if (effectiveType == "image") 0.dp else minBubbleWidth, max = maxBubbleWidth)
@@ -1758,6 +1800,7 @@ private fun MessageBubble(
                 }
             }
         }
+        } // end outer Column (group sender name wrapper)
     }
 }
 

@@ -63,6 +63,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import coil3.compose.AsyncImage
 import org.koin.androidx.compose.koinViewModel
 import ru.yakut54.ktoto.data.model.Conversation
 import ru.yakut54.ktoto.utils.formatConversationTime
@@ -262,28 +263,40 @@ private fun ConversationItem(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Avatar with optional online dot / group icon
+        // Avatar with optional online dot / group icon / real photo
         Box(modifier = Modifier.size(52.dp)) {
-            Box(
-                modifier = Modifier
-                    .size(52.dp)
-                    .background(avatarColor, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (isGroup) {
-                    Icon(
-                        imageVector = Icons.Default.Group,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(28.dp),
-                    )
-                } else {
-                    Text(
-                        text = name.take(1).uppercase(),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp,
-                        color = Color.White,
-                    )
+            if (conversation.avatarUrl != null) {
+                AsyncImage(
+                    model = conversation.avatarUrl,
+                    contentDescription = name,
+                    modifier = Modifier
+                        .size(52.dp)
+                        .background(avatarColor, CircleShape)
+                        .then(Modifier.padding(0.dp)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .background(avatarColor, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isGroup) {
+                        Icon(
+                            imageVector = Icons.Default.Group,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp),
+                        )
+                    } else {
+                        Text(
+                            text = name.take(1).uppercase(),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp,
+                            color = Color.White,
+                        )
+                    }
                 }
             }
             if (isOnline && !isGroup) {
