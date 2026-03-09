@@ -67,6 +67,14 @@ class CallService : Service() {
             ACTION_ACCEPT -> {
                 callManager.acceptCall()
                 switchToActiveNotification()
+                // User tapped notification button — BAL exemption is active for 30s.
+                // Bring the app to foreground so the call screen appears immediately.
+                startActivity(
+                    Intent(this, MainActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                        putExtra("action", "IN_CALL")
+                    },
+                )
             }
             ACTION_DECLINE -> callManager.rejectCall()
             ACTION_END -> callManager.endCall()
