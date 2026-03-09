@@ -20,6 +20,7 @@ const mockS3Plugin = fp(async (app: FastifyInstance) => {
     presignedUrl: vi.fn().mockImplementation((key: string) =>
       Promise.resolve(`http://test-s3:9000/ktoto-media/${key}?mock=1`),
     ),
+    deleteObjects: vi.fn().mockResolvedValue(undefined),
   })
 })
 

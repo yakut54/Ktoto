@@ -1,5 +1,6 @@
 import {
   CreateBucketCommand,
+  DeleteObjectsCommand,
   HeadBucketCommand,
   PutObjectCommand,
   S3Client,
@@ -83,7 +84,17 @@ export const s3Plugin = fp(async (app: FastifyInstance) => {
     return url
   }
 
-  app.decorate('s3', { upload, presignedUrl })
+  async function deleteObjects(keys: string[]): Promise<void> {
+    if (!keys.length) return
+    await client.send(
+      new DeleteObjectsCommand({
+        Bucket: BUCKET,
+        Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true },
+      }),
+    )
+  }
+
+  app.decorate('s3', { upload, presignedUrl, deleteObjects })
 })
 
 declare module 'fastify' {
@@ -91,6 +102,7 @@ declare module 'fastify' {
     s3: {
       upload(key: string, stream: Readable | Buffer, mimeType: string): Promise<void>
       presignedUrl(key: string, ttlSeconds?: number): Promise<string>
+      deleteObjects(keys: string[]): Promise<void>
     }
   }
 }

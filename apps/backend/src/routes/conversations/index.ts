@@ -263,7 +263,12 @@ export async function conversationRoutes(app: FastifyInstance) {
       const { userId } = request.user
       const { id: convId } = request.params
       const limit = Math.min(Number(request.query.limit) || 50, 100)
-      const before = request.query.before ?? null
+      const beforeRaw = request.query.before ?? null
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      if (beforeRaw !== null && !UUID_RE.test(beforeRaw)) {
+        return reply.status(400).send({ error: 'Invalid cursor: before must be a valid UUID' })
+      }
+      const before = beforeRaw
 
       // access check
       const access = await app.pg.query(
@@ -309,7 +314,7 @@ export async function conversationRoutes(app: FastifyInstance) {
            rm.content AS rt_content, rm.type AS rt_type,
            ru.id AS rt_user_id, ru.username AS rt_username
          FROM messages m
-         JOIN users u ON u.id = m.user_id
+         LEFT JOIN users u ON u.id = m.user_id
          LEFT JOIN file_attachments fa ON fa.message_id = m.id
          LEFT JOIN messages rm ON rm.id = m.reply_to_id AND rm.deleted_at IS NULL
          LEFT JOIN users ru ON ru.id = rm.user_id
@@ -375,7 +380,7 @@ export async function conversationRoutes(app: FastifyInstance) {
               type: r.rt_type,
               sender: { id: r.rt_user_id, username: r.rt_username },
             } : null,
-            sender: { id: r.user_id, username: r.username, avatarUrl: r.avatar_url },
+            sender: { id: r.user_id ?? '', username: r.username ?? 'System', avatarUrl: r.avatar_url ?? null },
             conversationId: convId,
             attachment,
             isDelivered: true,
@@ -630,6 +635,15 @@ export async function conversationRoutes(app: FastifyInstance) {
 
         if (!content?.trim()) return reply.status(400).send({ error: 'content required' })
 
+        // Validate reply_to_id belongs to this conversation (prevent cross-conv preview leak)
+        if (replyToId) {
+          const replyCheck = await app.pg.query(
+            `SELECT 1 FROM messages WHERE id=$1 AND conversation_id=$2`,
+            [replyToId, convId],
+          )
+          if (!replyCheck.rows[0]) replyToId = null
+        }
+
         const { rows } = await app.pg.query<{
           id: string
           content: string
@@ -719,6 +733,13 @@ export async function conversationRoutes(app: FastifyInstance) {
       const { content } = request.body
 
       if (!content?.trim()) return reply.status(400).send({ error: 'content required' })
+
+      // participant check (prevents probing messages in foreign conversations)
+      const editAccess = await app.pg.query(
+        `SELECT 1 FROM conversation_participants WHERE conversation_id=$1 AND user_id=$2`,
+        [convId, userId],
+      )
+      if (!editAccess.rows[0]) return reply.status(403).send({ error: 'Forbidden' })
 
       // Check message exists, belongs to user, and is text type
       const msgCheck = await app.pg.query<{
@@ -1049,7 +1070,22 @@ export async function conversationRoutes(app: FastifyInstance) {
       )
       if (!msgCheck.rows[0]) return reply.status(404).send({ error: 'Message not found' })
 
+      // Collect S3 keys before deleting so we can clean up storage
+      const attachments = await app.pg.query<{ s3_key: string; thumbnail_s3_key: string | null }>(
+        `SELECT s3_key, thumbnail_s3_key FROM file_attachments WHERE message_id=$1`,
+        [msgId],
+      )
+
       await app.pg.query(`UPDATE messages SET deleted_at=NOW() WHERE id=$1`, [msgId])
+
+      // Remove file_attachments rows and S3 objects
+      if (attachments.rows.length > 0) {
+        await app.pg.query(`DELETE FROM file_attachments WHERE message_id=$1`, [msgId])
+        const keys = attachments.rows
+          .flatMap((a) => [a.s3_key, a.thumbnail_s3_key])
+          .filter((k): k is string => k !== null)
+        if (keys.length > 0) await app.s3.deleteObjects(keys)
+      }
 
       const payload = { id: msgId, conversationId: convId }
 

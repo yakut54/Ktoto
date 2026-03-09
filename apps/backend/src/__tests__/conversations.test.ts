@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest'
 import { buildTestApp, truncateAll } from './helpers/app.js'
 import { registerUser, createDirectConv, sendMessage, bearer } from './helpers/fixtures.js'
 import type { FastifyInstance } from 'fastify'
@@ -285,11 +285,11 @@ describe('Conversations', () => {
       expect(messages.find((m: { id: string }) => m.id === msg.id)).toBeUndefined()
     })
 
-    it('⚠ delete does NOT remove S3 file (orphaned files accumulate)', async () => {
+    it('delete removes file_attachments and calls S3 deleteObjects', async () => {
       const convId = await createDirectConv(app, alice, bob.id)
       const msg = await sendMessage(app, alice, convId, 'text msg')
 
-      // Add a fake file_attachment record to document the gap
+      // Add a fake file_attachment record
       await app.pg.query(`
         INSERT INTO file_attachments (message_id, file_name, file_size_bytes, mime_type, file_type, s3_key)
         VALUES ($1, 'test.jpg', 1024, 'image/jpeg', 'image', 'messages/test.jpg')
@@ -300,12 +300,13 @@ describe('Conversations', () => {
         headers: bearer(alice),
       })
 
-      // S3 file still in DB (and would still be in S3)
+      // file_attachments row should be gone
       const { rows } = await app.pg.query(
         `SELECT id FROM file_attachments WHERE message_id=$1`, [msg.id],
       )
-      // This test DOCUMENTS the bug: file_attachments not cleaned up on message delete
-      expect(rows.length).toBe(1) // orphaned record still exists
+      expect(rows.length).toBe(0)
+      // S3 deleteObjects should have been called
+      expect(vi.mocked(app.s3.deleteObjects)).toHaveBeenCalledWith(['messages/test.jpg'])
     })
 
     it('any participant can delete any message in conversation → 204', async () => {
