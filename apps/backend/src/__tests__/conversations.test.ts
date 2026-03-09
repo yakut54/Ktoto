@@ -164,7 +164,7 @@ describe('Conversations', () => {
         headers: bearer(alice),
         payload: { content: 'Hello Bob!', type: 'text' },
       })
-      expect(res.statusCode).toBe(200)
+      expect(res.statusCode).toBe(201)
       const msg = res.json()
       expect(msg.content).toBe('Hello Bob!')
       expect(msg.type).toBe('text')
@@ -192,7 +192,7 @@ describe('Conversations', () => {
         headers: bearer(bob),
         payload: { content: 'Reply!', type: 'text', reply_to_id: originalMsg.id },
       })
-      expect(res.statusCode).toBe(200)
+      expect(res.statusCode).toBe(201)
       expect(res.json().replyToId).toBe(originalMsg.id)
     })
 
@@ -212,7 +212,7 @@ describe('Conversations', () => {
         headers: bearer(bob),
         payload: { content: 'Reply to deleted', type: 'text', reply_to_id: originalMsg.id },
       })
-      expect(res.statusCode).toBe(200)
+      expect(res.statusCode).toBe(201)
       // replyTo preview should be null since message is soft-deleted
       expect(res.json().replyTo).toBeNull()
     })
@@ -339,8 +339,8 @@ describe('Conversations', () => {
       const msgs1 = page1.json()
       expect(msgs1).toHaveLength(20)
 
-      // Cursor: oldest message id from first page
-      const cursor = msgs1[msgs1.length - 1].id
+      // Cursor: oldest message id from first page (index 0, since result is asc order)
+      const cursor = msgs1[0].id
       const page2 = await app.inject({
         method: 'GET', url: `/api/conversations/${convId}/messages?limit=20&before=${cursor}`,
         headers: bearer(alice),
@@ -387,7 +387,7 @@ describe('Conversations', () => {
         headers: bearer(alice), // alice is admin
         payload: { userId: charlie.id },
       })
-      expect(res.statusCode).toBe(200)
+      expect(res.statusCode).toBe(201)
     })
 
     it('non-admin cannot remove other member → 403', async () => {
