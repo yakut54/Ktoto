@@ -11,6 +11,7 @@ import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,6 +19,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
+import ru.yakut54.ktoto.IncomingCallActivity
 import ru.yakut54.ktoto.MainActivity
 import ru.yakut54.ktoto.R
 import ru.yakut54.ktoto.call.CallManager
@@ -95,18 +97,20 @@ class CallService : Service() {
                 }
 
                 // On unlocked screen Android suppresses fullScreenIntent and shows
-                // a heads-up notification instead. Bring MainActivity to foreground
-                // directly so the call screen appears immediately.
+                // a heads-up notification instead. Launch IncomingCallActivity — a
+                // transparent singleInstance trampoline in its own task — which has
+                // higher BAL privilege on restrictive OEM ROMs (HiOS, MIUI, etc.)
+                // than a direct startActivity(MainActivity) from a service.
+                // Screen OFF is handled by fullScreenIntent in the notification.
                 if (state == CallState.INCOMING_RINGING) {
-                    val activityIntent = Intent(this, MainActivity::class.java).apply {
-                        addFlags(
-                            Intent.FLAG_ACTIVITY_NEW_TASK or
-                                Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                                Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    val pm = getSystemService(PowerManager::class.java)
+                    if (pm.isInteractive) {
+                        startActivity(
+                            Intent(this, IncomingCallActivity::class.java).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            },
                         )
-                        putExtra("action", "INCOMING_CALL")
                     }
-                    startActivity(activityIntent)
                 }
             }
         }

@@ -2,4 +2,6 @@
 <resources>
 
     <style name="Theme.Ktoto" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <style name="Theme.Ktoto.Transparent" parent="android:Theme.Translucent.NoTitleBar" />
 </resources>

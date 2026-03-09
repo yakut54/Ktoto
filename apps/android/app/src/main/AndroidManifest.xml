@@ -64,6 +64,16 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".IncomingCallActivity"
+            android:exported="false"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@style/Theme.Ktoto.Transparent"
+            android:launchMode="singleInstance"
+            android:taskAffinity=""
+            android:excludeFromRecents="true" />
+
         <service
             android:name=".service.PushService"
             android:foregroundServiceType="dataSync"
