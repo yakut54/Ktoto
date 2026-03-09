@@ -7,6 +7,7 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -54,11 +55,15 @@ class ChatViewModelTest {
 
     // ── Socket emission pipes ─────────────────────────────────────────────────
 
-    private val _msgsFlow = MutableSharedFlow<Message>()
-    private val _typingFlow = MutableSharedFlow<Pair<String, String>>()
-    private val _editedFlow = MutableSharedFlow<Message>()
-    private val _deletedFlow = MutableSharedFlow<Pair<String, String>>()
-    private val _readFlow = MutableSharedFlow<MessagesReadEvent>()
+    private val _msgsFlow = MutableSharedFlow<Message>(extraBufferCapacity = 64)
+    // extraBufferCapacity = 1 avoids deadlock: the typing/deleted collectors have delay() in their
+    // lambdas; with a 0-capacity shared flow, emit() suspends waiting for the collector to finish
+    // its lambda — but the collector can't finish because virtual time won't advance while the test
+    // coroutine is blocked on emit(). A single extra slot lets emit() return immediately.
+    private val _typingFlow = MutableSharedFlow<Pair<String, String>>(extraBufferCapacity = 1)
+    private val _editedFlow = MutableSharedFlow<Message>(extraBufferCapacity = 64)
+    private val _deletedFlow = MutableSharedFlow<Pair<String, String>>(extraBufferCapacity = 1)
+    private val _readFlow = MutableSharedFlow<MessagesReadEvent>(extraBufferCapacity = 64)
     private val _onlineFlow = MutableStateFlow<Set<String>>(emptySet())
 
     private lateinit var viewModel: ChatViewModel
@@ -197,15 +202,22 @@ class ChatViewModelTest {
 
     @Test
     fun `sendMessage - optimistic message added synchronously before API returns`() = runTest(testDispatcher) {
+        // With UnconfinedTestDispatcher the launch{} inside sendMessage() runs inline, so we must
+        // make the API suspend indefinitely to keep the optimistic message alive long enough to inspect.
+        val gate = CompletableDeferred<Message>()
+        coEvery { api.sendMessage(any(), any(), any()) } coAnswers { gate.await() }
+
         viewModel.init("conv-1")
         advanceUntilIdle()
         viewModel.sendMessage("Hello")
-        // Do NOT advance — optimistic added in synchronous section before launch{}
+        // Launch is suspended at gate.await() — optimistic is still in the list
         val msgs = viewModel.messages.value
         assertEquals(1, msgs.size)
         assertTrue(msgs[0].id.startsWith("temp_"))
         assertFalse(msgs[0].isDelivered)
         assertEquals("Hello", msgs[0].content)
+
+        gate.cancel() // let the coroutine finish (failure path removes the optimistic)
     }
 
     @Test
