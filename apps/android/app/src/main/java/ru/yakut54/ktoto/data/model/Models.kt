@@ -117,6 +117,15 @@ data class AddMemberRequest(val userId: String)
 data class RenameGroupRequest(val name: String)
 data class ChangeRoleRequest(val role: String)
 
+data class ChangePasswordRequest(val currentPassword: String, val newPassword: String)
+
+data class BlockedUser(
+    val id: String,
+    val username: String,
+    val avatarUrl: String?,
+    val blockedAt: String,
+)
+
 // ─── Call models ──────────────────────────────────────────────────────────────
 
 data class IceServerConfig(

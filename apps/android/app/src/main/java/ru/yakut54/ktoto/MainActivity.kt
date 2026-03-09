@@ -15,12 +15,22 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.lifecycleScope
+import org.koin.android.ext.android.inject
+import ru.yakut54.ktoto.data.store.AppTheme
+import ru.yakut54.ktoto.data.store.PreferencesStore
 import ru.yakut54.ktoto.service.PushService
 import ru.yakut54.ktoto.ui.navigation.AppNavigation
 import ru.yakut54.ktoto.ui.navigation.SharePayload
 import ru.yakut54.ktoto.ui.theme.KtotoTheme
 
 class MainActivity : ComponentActivity() {
+
+    private val prefsStore: PreferencesStore by inject()
 
     val pendingConversationId = MutableStateFlow<String?>(null)
     val pendingShareData = MutableStateFlow<SharePayload?>(null)
@@ -63,8 +73,26 @@ class MainActivity : ComponentActivity() {
             startPushService()
         }
 
+        val themeFlow = prefsStore.theme.stateIn(
+            lifecycleScope,
+            SharingStarted.Eagerly,
+            AppTheme.SYSTEM,
+        )
+        val fontScaleFlow = prefsStore.fontScale.stateIn(
+            lifecycleScope,
+            SharingStarted.Eagerly,
+            1.0f,
+        )
+
         setContent {
-            KtotoTheme {
+            val appTheme by themeFlow.collectAsState()
+            val fontScale by fontScaleFlow.collectAsState()
+            val darkTheme = when (appTheme) {
+                AppTheme.LIGHT -> false
+                AppTheme.DARK -> true
+                AppTheme.SYSTEM -> isSystemInDarkTheme()
+            }
+            KtotoTheme(darkTheme = darkTheme, fontScale = fontScale) {
                 AppNavigation(
                     pendingConversationId = pendingConversationId,
                     pendingShareData = pendingShareData,

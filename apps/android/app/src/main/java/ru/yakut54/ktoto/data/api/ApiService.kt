@@ -20,6 +20,8 @@ import retrofit2.http.Query
 import retrofit2.http.DELETE
 import ru.yakut54.ktoto.data.model.AddMemberRequest
 import ru.yakut54.ktoto.data.model.AuthResponse
+import ru.yakut54.ktoto.data.model.BlockedUser
+import ru.yakut54.ktoto.data.model.ChangePasswordRequest
 import ru.yakut54.ktoto.data.model.ChangeRoleRequest
 import ru.yakut54.ktoto.data.model.Conversation
 import ru.yakut54.ktoto.data.model.FcmTokenRequest
@@ -33,6 +35,7 @@ import ru.yakut54.ktoto.data.model.RenameGroupRequest
 import ru.yakut54.ktoto.data.model.SendMessageRequest
 import ru.yakut54.ktoto.data.model.CallRecord
 import ru.yakut54.ktoto.data.model.TurnCredentials
+import ru.yakut54.ktoto.data.model.User
 import ru.yakut54.ktoto.data.model.UserItem
 import ru.yakut54.ktoto.data.store.TokenStore
 
@@ -43,6 +46,15 @@ interface ApiService {
 
     @POST("api/auth/register")
     suspend fun register(@Body body: RegisterRequest): AuthResponse
+
+    @GET("api/auth/me")
+    suspend fun getMe(@Header("Authorization") token: String): Map<String, Any>
+
+    @POST("api/auth/logout")
+    suspend fun logout(
+        @Header("Authorization") token: String,
+        @Body body: Map<String, String>,
+    )
 
     @GET("api/users")
     suspend fun searchUsers(
@@ -169,6 +181,29 @@ interface ApiService {
         @Path("id") conversationId: String,
         @Path("userId") userId: String,
         @Body body: ChangeRoleRequest,
+    ): Map<String, Any>
+
+    @Multipart
+    @PATCH("api/users/profile")
+    suspend fun updateProfile(
+        @Header("Authorization") token: String,
+        @Part file: MultipartBody.Part?,
+        @Part("username") username: RequestBody?,
+    ): Map<String, Any>
+
+    @POST("api/users/change-password")
+    suspend fun changePassword(
+        @Header("Authorization") token: String,
+        @Body body: ChangePasswordRequest,
+    ): Map<String, Any>
+
+    @GET("api/users/blocked")
+    suspend fun getBlockedUsers(@Header("Authorization") token: String): List<BlockedUser>
+
+    @DELETE("api/users/blocked/{userId}")
+    suspend fun unblockUser(
+        @Header("Authorization") token: String,
+        @Path("userId") userId: String,
     ): Map<String, Any>
 }
 

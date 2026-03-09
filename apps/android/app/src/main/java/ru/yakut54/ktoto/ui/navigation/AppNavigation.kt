@@ -55,6 +55,8 @@ import ru.yakut54.ktoto.ui.conversations.ConversationsScreen
 import ru.yakut54.ktoto.ui.groupinfo.GroupInfoScreen
 import ru.yakut54.ktoto.ui.newchat.CreateGroupScreen
 import ru.yakut54.ktoto.ui.newchat.NewChatScreen
+import ru.yakut54.ktoto.ui.settings.BlockedUsersScreen
+import ru.yakut54.ktoto.ui.settings.SettingsScreen
 
 data class SharePayload(
     val uri: Uri? = null,
@@ -71,6 +73,8 @@ object Routes {
     const val CALL = "call"
     const val CALL_HISTORY = "call_history"
     const val GROUP_INFO = "group_info/{convId}/{convName}/{userId}"
+    const val SETTINGS = "settings"
+    const val BLOCKED_USERS = "blocked_users"
 
     fun chat(convId: String, convName: String, userId: String, otherId: String = "") =
         "chat/$convId/${convName.ifBlank { "Чат" }}/$userId/${otherId.ifBlank { "_" }}"
@@ -267,13 +271,25 @@ fun AppNavigation(
                 },
                 onNewChat = { navController.navigate(Routes.NEW_CHAT) },
                 onCallHistory = { navController.navigate(Routes.CALL_HISTORY) },
+                onSettings = { navController.navigate(Routes.SETTINGS) },
+            )
+        }
+
+        composable(Routes.SETTINGS) {
+            SettingsScreen(
+                onBack = { navController.popBackStack() },
                 onLogout = {
                     socketManager.disconnect()
                     navController.navigate(Routes.AUTH) {
-                        popUpTo(Routes.CONVERSATIONS) { inclusive = true }
+                        popUpTo(0) { inclusive = true }
                     }
                 },
+                onBlockedUsers = { navController.navigate(Routes.BLOCKED_USERS) },
             )
+        }
+
+        composable(Routes.BLOCKED_USERS) {
+            BlockedUsersScreen(onBack = { navController.popBackStack() })
         }
 
         composable(Routes.CALL_HISTORY) {

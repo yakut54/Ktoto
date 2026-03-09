@@ -99,6 +99,16 @@ export async function authRoutes(app: FastifyInstance) {
     if (!user) {
       return reply.status(404).send({ error: 'User not found' })
     }
-    return { user }
+    const avatarUrl = (user as any).avatar_url
+      ? await app.s3.presignedUrl((user as any).avatar_url)
+      : null
+    return {
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        avatarUrl,
+      },
+    }
   })
 }

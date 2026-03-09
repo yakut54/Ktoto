@@ -15,11 +15,14 @@ import ru.yakut54.ktoto.ui.callhistory.CallHistoryViewModel
 import ru.yakut54.ktoto.ui.groupinfo.GroupInfoViewModel
 import ru.yakut54.ktoto.ui.newchat.CreateGroupViewModel
 import ru.yakut54.ktoto.ui.newchat.NewChatViewModel
+import ru.yakut54.ktoto.data.store.PreferencesStore
+import ru.yakut54.ktoto.ui.settings.SettingsViewModel
 
 private const val BASE_URL = "http://31.128.39.216:3000/"
 
 val appModule = module {
     single { TokenStore(androidContext()) }
+    single { PreferencesStore(androidContext()) }
     single { buildApiService(BASE_URL, get()) }
     single { SocketManager() }
     single {
@@ -33,4 +36,5 @@ val appModule = module {
     viewModel { GroupInfoViewModel(get(), get()) }
     viewModel { CallViewModel(get()) }
     viewModel { CallHistoryViewModel(get(), get()) }
+    viewModel { SettingsViewModel(get(), get(), get()) }
 }

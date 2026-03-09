@@ -22,11 +22,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Badge
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -75,7 +75,7 @@ fun ConversationsScreen(
     onConversationClick: (Conversation, userId: String) -> Unit,
     onNewChat: () -> Unit,
     onCallHistory: () -> Unit,
-    onLogout: () -> Unit,
+    onSettings: () -> Unit,
 ) {
     val vm: ConversationsViewModel = koinViewModel()
     val state by vm.state.collectAsState()
@@ -128,8 +128,8 @@ fun ConversationsScreen(
                     IconButton(onClick = onCallHistory) {
                         Icon(Icons.Default.Phone, contentDescription = "История звонков")
                     }
-                    IconButton(onClick = { vm.logout(onLogout) }) {
-                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Выйти")
+                    IconButton(onClick = onSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = "Настройки")
                     }
                 },
             )
