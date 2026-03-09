@@ -16,8 +16,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,7 +43,11 @@ import ru.yakut54.ktoto.utils.nameToAvatarColor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NewChatScreen(onBack: () -> Unit, onCreated: (convId: String, convName: String) -> Unit) {
+fun NewChatScreen(
+    onBack: () -> Unit,
+    onCreated: (convId: String, convName: String) -> Unit,
+    onCreateGroup: () -> Unit,
+) {
     val vm: NewChatViewModel = koinViewModel()
     val query by vm.query.collectAsState()
     val users by vm.users.collectAsState()
@@ -87,6 +94,44 @@ fun NewChatScreen(onBack: () -> Unit, onCreated: (convId: String, convName: Stri
             }
         } else {
             LazyColumn(Modifier.fillMaxSize().padding(padding)) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(onClick = onCreateGroup)
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Group,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = "Новая группа",
+                                fontWeight = FontWeight.Medium,
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                    HorizontalDivider()
+                }
                 items(users, key = { it.id }) { user ->
                     Row(
                         modifier = Modifier

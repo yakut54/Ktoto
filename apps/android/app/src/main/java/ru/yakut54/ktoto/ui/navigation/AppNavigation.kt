@@ -52,6 +52,7 @@ import ru.yakut54.ktoto.ui.call.CallViewModel
 import ru.yakut54.ktoto.ui.callhistory.CallHistoryScreen
 import ru.yakut54.ktoto.ui.chat.ChatScreen
 import ru.yakut54.ktoto.ui.conversations.ConversationsScreen
+import ru.yakut54.ktoto.ui.newchat.CreateGroupScreen
 import ru.yakut54.ktoto.ui.newchat.NewChatScreen
 
 data class SharePayload(
@@ -64,6 +65,7 @@ object Routes {
     const val AUTH = "auth"
     const val CONVERSATIONS = "conversations"
     const val NEW_CHAT = "new_chat"
+    const val CREATE_GROUP = "create_group"
     const val CHAT = "chat/{convId}/{convName}/{userId}/{otherId}"
     const val CALL = "call"
     const val CALL_HISTORY = "call_history"
@@ -284,6 +286,19 @@ fun AppNavigation(
 
         composable(Routes.NEW_CHAT) {
             NewChatScreen(
+                onBack = { navController.popBackStack() },
+                onCreated = { convId, convName ->
+                    token?.let { socketManager.connect(it) }
+                    navController.navigate(Routes.chat(convId, convName, currentUserId)) {
+                        popUpTo(Routes.NEW_CHAT) { inclusive = true }
+                    }
+                },
+                onCreateGroup = { navController.navigate(Routes.CREATE_GROUP) },
+            )
+        }
+
+        composable(Routes.CREATE_GROUP) {
+            CreateGroupScreen(
                 onBack = { navController.popBackStack() },
                 onCreated = { convId, convName ->
                     token?.let { socketManager.connect(it) }

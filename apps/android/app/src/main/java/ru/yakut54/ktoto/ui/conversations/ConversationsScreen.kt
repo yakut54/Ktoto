@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.Badge
 import androidx.compose.material3.CircularProgressIndicator
@@ -251,6 +252,7 @@ private fun ConversationItem(
 ) {
     val name        = conversation.name ?: "Чат"
     val avatarColor = nameToAvatarColor(name)
+    val isGroup     = conversation.type == "group"
 
     Row(
         modifier = Modifier
@@ -260,7 +262,7 @@ private fun ConversationItem(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Avatar with optional online dot
+        // Avatar with optional online dot / group icon
         Box(modifier = Modifier.size(52.dp)) {
             Box(
                 modifier = Modifier
@@ -268,14 +270,23 @@ private fun ConversationItem(
                     .background(avatarColor, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = name.take(1).uppercase(),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
-                    color = Color.White,
-                )
+                if (isGroup) {
+                    Icon(
+                        imageVector = Icons.Default.Group,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp),
+                    )
+                } else {
+                    Text(
+                        text = name.take(1).uppercase(),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp,
+                        color = Color.White,
+                    )
+                }
             }
-            if (isOnline) {
+            if (isOnline && !isGroup) {
                 Box(
                     modifier = Modifier
                         .size(14.dp)

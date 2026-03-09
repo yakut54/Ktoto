@@ -196,6 +196,10 @@ export async function conversationRoutes(app: FastifyInstance) {
         [convId, userId],
       )
       await client.query('COMMIT')
+      // Notify all members so their conversation lists update in real-time
+      for (const memberId of members) {
+        app.io.to(`user:${memberId}`).emit('new_conversation', { conversationId: convId })
+      }
       reply.status(201)
       return { id: convId, existed: false }
     } catch (e) {

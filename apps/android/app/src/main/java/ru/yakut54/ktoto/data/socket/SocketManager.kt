@@ -47,6 +47,10 @@ class SocketManager {
     private val _messagesRead = MutableSharedFlow<MessagesReadEvent>(extraBufferCapacity = 64)
     val messagesRead = _messagesRead.asSharedFlow()
 
+    /** Fired when a new conversation is created (e.g. someone adds you to a group) */
+    private val _newConversation = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    val newConversation: SharedFlow<String> = _newConversation.asSharedFlow()
+
     /** Set of user IDs currently online */
     private val _onlineUsers = MutableStateFlow<Set<String>>(emptySet())
     val onlineUsers: StateFlow<Set<String>> = _onlineUsers.asStateFlow()
@@ -159,6 +163,13 @@ class SocketManager {
                 runCatching { gson.fromJson(json, MessagesReadEvent::class.java) }
                     .onSuccess { _messagesRead.tryEmit(it) }
                     .onFailure { Log.e(TAG, "messages_read parse error: $json", it) }
+            }
+            on("new_conversation") { args ->
+                runCatching {
+                    val obj = gson.fromJson(args[0].toString(), Map::class.java)
+                    val convId = obj["conversationId"] as? String ?: return@runCatching
+                    _newConversation.tryEmit(convId)
+                }
             }
 
             // ── Call signaling ─────────────────────────────────────────────

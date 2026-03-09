@@ -55,6 +55,9 @@ class ConversationsViewModel(
                 }
             }
         }
+        viewModelScope.launch {
+            socketManager.newConversation.collect { load() }
+        }
     }
 
     fun load() {
