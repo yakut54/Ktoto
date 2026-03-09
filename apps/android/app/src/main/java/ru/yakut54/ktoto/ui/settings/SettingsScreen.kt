@@ -31,8 +31,8 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.VolumeOff
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -333,7 +333,7 @@ fun SettingsScreen(
             // ── Notifications ─────────────────────────────────────────────────
             SectionHeader("Уведомления")
             SettingsSwitchRow(
-                icon = if (soundEnabled) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+                icon = if (soundEnabled) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
                 title = "Звук уведомлений",
                 checked = soundEnabled,
                 onCheckedChange = { vm.setSoundEnabled(it) },

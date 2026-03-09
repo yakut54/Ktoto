@@ -126,6 +126,9 @@ data class BlockedUser(
     val blockedAt: String,
 )
 
+data class UserResponse(val user: User)
+data class OkResponse(val ok: Boolean)
+
 // ─── Call models ──────────────────────────────────────────────────────────────
 
 data class IceServerConfig(

@@ -35,8 +35,10 @@ import ru.yakut54.ktoto.data.model.RenameGroupRequest
 import ru.yakut54.ktoto.data.model.SendMessageRequest
 import ru.yakut54.ktoto.data.model.CallRecord
 import ru.yakut54.ktoto.data.model.TurnCredentials
+import ru.yakut54.ktoto.data.model.OkResponse
 import ru.yakut54.ktoto.data.model.User
 import ru.yakut54.ktoto.data.model.UserItem
+import ru.yakut54.ktoto.data.model.UserResponse
 import ru.yakut54.ktoto.data.store.TokenStore
 
 interface ApiService {
@@ -48,7 +50,7 @@ interface ApiService {
     suspend fun register(@Body body: RegisterRequest): AuthResponse
 
     @GET("api/auth/me")
-    suspend fun getMe(@Header("Authorization") token: String): Map<String, Any>
+    suspend fun getMe(@Header("Authorization") token: String): UserResponse
 
     @POST("api/auth/logout")
     suspend fun logout(
@@ -189,13 +191,13 @@ interface ApiService {
         @Header("Authorization") token: String,
         @Part file: MultipartBody.Part?,
         @Part("username") username: RequestBody?,
-    ): Map<String, Any>
+    ): UserResponse
 
     @POST("api/users/change-password")
     suspend fun changePassword(
         @Header("Authorization") token: String,
         @Body body: ChangePasswordRequest,
-    ): Map<String, Any>
+    ): OkResponse
 
     @GET("api/users/blocked")
     suspend fun getBlockedUsers(@Header("Authorization") token: String): List<BlockedUser>
@@ -204,7 +206,7 @@ interface ApiService {
     suspend fun unblockUser(
         @Header("Authorization") token: String,
         @Path("userId") userId: String,
-    ): Map<String, Any>
+    ): OkResponse
 }
 
 fun buildApiService(baseUrl: String, tokenStore: TokenStore): ApiService {

@@ -62,13 +62,12 @@ class SettingsViewModel(
         viewModelScope.launch {
             runCatching {
                 val token = tokenStore.accessToken.first() ?: return@launch
-                val resp = api.getMe("Bearer $token")
-                val u = resp["user"] as? Map<*, *> ?: return@launch
+                val u = api.getMe("Bearer $token").user
                 _profile.value = ProfileState(
-                    userId = u["id"] as? String ?: "",
-                    username = u["username"] as? String ?: "",
-                    email = u["email"] as? String ?: "",
-                    avatarUrl = u["avatarUrl"] as? String,
+                    userId = u.id,
+                    username = u.username,
+                    email = u.email,
+                    avatarUrl = u.avatarUrl,
                 )
             }
         }
@@ -84,11 +83,7 @@ class SettingsViewModel(
                 val body = bytes.toRequestBody(mime.toMediaTypeOrNull())
                 val part = MultipartBody.Part.createFormData("file", "avatar.jpg", body)
                 val result = api.updateProfile("Bearer $token", part, null)
-                val userMap = result["user"] as? Map<*, *>
-                val newAvatarUrl = userMap?.get("avatarUrl") as? String
-                if (newAvatarUrl != null) {
-                    _profile.value = _profile.value.copy(avatarUrl = newAvatarUrl)
-                }
+                _profile.value = _profile.value.copy(avatarUrl = result.user.avatarUrl)
                 _event.value = SettingsEvent.ProfileSaved
             }.onFailure {
                 _event.value = SettingsEvent.Error(it.message ?: "Ошибка загрузки аватара")
@@ -105,8 +100,7 @@ class SettingsViewModel(
                 val token = tokenStore.accessToken.first() ?: return@launch
                 val usernamePart = newUsername.trim().toRequestBody("text/plain".toMediaTypeOrNull())
                 val result = api.updateProfile("Bearer $token", null, usernamePart)
-                val userMap = result["user"] as? Map<*, *>
-                val savedName = userMap?.get("username") as? String ?: newUsername.trim()
+                val savedName = result.user.username
                 _profile.value = _profile.value.copy(username = savedName)
                 tokenStore.save(
                     tokenStore.accessToken.first() ?: "",
