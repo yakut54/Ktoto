@@ -1,8 +1,6 @@
 package ru.yakut54.ktoto.ui.navigation
 
 import android.net.Uri
-import androidx.activity.ComponentActivity
-import kotlinx.coroutines.delay
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -20,6 +18,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -27,8 +26,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -79,6 +78,7 @@ fun AppNavigation(
     pendingConversationId: StateFlow<String?> = MutableStateFlow(null),
     pendingShareData: StateFlow<SharePayload?> = MutableStateFlow(null),
     pendingCallAction: StateFlow<String?> = MutableStateFlow(null),
+    pendingFromSleep: StateFlow<Boolean> = MutableStateFlow(false),
 ) {
     val tokenStore: TokenStore = koinInject()
     val socketManager: SocketManager = koinInject()
@@ -95,6 +95,7 @@ fun AppNavigation(
     val currentRoute by navController.currentBackStackEntryAsState()
     val callAction by pendingCallAction.collectAsState()
     val callState by callVm.callState.collectAsState()
+    val fromSleep by pendingFromSleep.collectAsState()
     var prevCallState by remember { mutableStateOf(CallState.IDLE) }
 
     fun startCallWithPermission(peerId: String, peerName: String, callType: String) {
@@ -114,9 +115,8 @@ fun AppNavigation(
                 }
             }
             CallState.IDLE -> {
-                if (prev != CallState.IDLE) {
-                    // Let CallScreen's popBackStack() fire first, then go to background
-                    delay(150)
+                if (prev != CallState.IDLE && fromSleep) {
+                    (pendingFromSleep as? MutableStateFlow)?.value = false
                     activity?.moveTaskToBack(true)
                 }
             }

@@ -90,6 +90,21 @@ class ConversationsViewModel(
         }
     }
 
+    fun deleteConversation(id: String) {
+        viewModelScope.launch {
+            try {
+                val token = tokenStore.accessToken.first() ?: return@launch
+                api.deleteConversation("Bearer $token", id)
+                val current = _state.value
+                if (current is ConversationsState.Success) {
+                    _state.value = ConversationsState.Success(current.items.filter { it.id != id })
+                }
+            } catch (_: Exception) {
+                load()
+            }
+        }
+    }
+
     fun logout(onDone: () -> Unit) {
         viewModelScope.launch {
             tokenStore.clear()

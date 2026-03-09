@@ -29,6 +29,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
+import ru.yakut54.ktoto.AcceptCallActivity
 import ru.yakut54.ktoto.IncomingCallActivity
 import ru.yakut54.ktoto.MainActivity
 import ru.yakut54.ktoto.R
@@ -88,14 +89,9 @@ class CallService : Service() {
             ACTION_ACCEPT -> {
                 callManager.acceptCall()
                 switchToActiveNotification()
-                // User tapped notification button — BAL exemption is active for 30s.
-                // Bring the app to foreground so the call screen appears immediately.
-                startActivity(
-                    Intent(this, MainActivity::class.java).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                        putExtra("action", "IN_CALL")
-                    },
-                )
+                // Note: opening the call screen is handled by AcceptCallActivity,
+                // which is launched directly via PendingIntent.getActivity() from the
+                // notification button — so no startActivity needed here.
             }
             ACTION_DECLINE -> callManager.rejectCall()
             ACTION_END -> callManager.endCall()
@@ -194,10 +190,11 @@ class CallService : Service() {
                 .setCategory(NotificationCompat.CATEGORY_CALL)
                 .setFullScreenIntent(fullScreenPendingIntent, true)
 
-            // Accept action
-            val acceptIntent = PendingIntent.getService(
+            // Accept action — PendingIntent.getActivity() so the system launches
+            // AcceptCallActivity directly; no BAL restrictions, works on HiOS/MIUI
+            val acceptIntent = PendingIntent.getActivity(
                 this, 1,
-                Intent(this, CallService::class.java).apply { action = ACTION_ACCEPT },
+                Intent(this, AcceptCallActivity::class.java),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
             builder.addAction(android.R.drawable.ic_menu_call, "Принять", acceptIntent)

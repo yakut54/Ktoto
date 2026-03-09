@@ -66,6 +66,14 @@
         </activity>
 
         <activity
+            android:name=".AcceptCallActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Ktoto.Transparent"
+            android:launchMode="singleInstance"
+            android:taskAffinity=""
+            android:excludeFromRecents="true" />
+
+        <activity
             android:name=".IncomingCallActivity"
             android:exported="false"
             android:showWhenLocked="true"

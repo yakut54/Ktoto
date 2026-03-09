@@ -24,7 +24,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -34,13 +36,20 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -152,6 +161,29 @@ fun ConversationsScreen(
                 }
 
                 is ConversationsState.Success -> {
+                    var pendingDeleteId by remember { mutableStateOf<String?>(null) }
+
+                    if (pendingDeleteId != null) {
+                        AlertDialog(
+                            onDismissRequest = { pendingDeleteId = null },
+                            title = { Text("Удалить чат?") },
+                            text = { Text("Вся переписка будет удалена без возможности восстановления.") },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    vm.deleteConversation(pendingDeleteId!!)
+                                    pendingDeleteId = null
+                                }) {
+                                    Text("Удалить", color = MaterialTheme.colorScheme.error)
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { pendingDeleteId = null }) {
+                                    Text("Отмена")
+                                }
+                            },
+                        )
+                    }
+
                     if (s.items.isEmpty()) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -171,13 +203,40 @@ fun ConversationsScreen(
                     } else {
                         LazyColumn(Modifier.fillMaxSize()) {
                             items(s.items, key = { it.id }) { conv ->
-                                ConversationItem(
-                                    conversation = conv,
-                                    currentUserId = userId,
-                                    isOnline = conv.otherId != null && conv.otherId in onlineUsers,
-                                    isTyping = conv.id in typingConvIds,
-                                    onClick = { onConversationClick(conv, userId) },
-                                )
+                                val dismissState = rememberSwipeToDismissBoxState()
+                                LaunchedEffect(dismissState.currentValue) {
+                                    if (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart) {
+                                        pendingDeleteId = conv.id
+                                        dismissState.snapTo(SwipeToDismissBoxValue.Settled)
+                                    }
+                                }
+                                SwipeToDismissBox(
+                                    state = dismissState,
+                                    enableDismissFromStartToEnd = false,
+                                    backgroundContent = {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(Color(0xFFE53935)),
+                                            contentAlignment = Alignment.CenterEnd,
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Удалить",
+                                                tint = Color.White,
+                                                modifier = Modifier.padding(end = 24.dp),
+                                            )
+                                        }
+                                    },
+                                ) {
+                                    ConversationItem(
+                                        conversation = conv,
+                                        currentUserId = userId,
+                                        isOnline = conv.otherId != null && conv.otherId in onlineUsers,
+                                        isTyping = conv.id in typingConvIds,
+                                        onClick = { onConversationClick(conv, userId) },
+                                    )
+                                }
                                 HorizontalDivider(Modifier.padding(start = 80.dp))
                             }
                         }
@@ -282,8 +341,22 @@ private fun ConversationItem(
                     "file"  -> "📎 Файл"
                     else    -> null
                 }
+                val callPreview: String? = if (lm?.type == "call") {
+                    val json = runCatching { org.json.JSONObject(lm.content ?: "{}") }.getOrNull()
+                    val callType = json?.optString("callType", "audio") ?: "audio"
+                    val outcome  = json?.optString("outcome", "missed") ?: "missed"
+                    val duration = json?.optInt("duration", 0)?.takeIf { it > 0 }
+                    when (outcome) {
+                        "completed" -> (if (callType == "video") "📹 Видео звонок" else "📞 Аудио звонок") +
+                            (duration?.let { " · ${it / 60}м ${it % 60}с" } ?: "")
+                        "declined"  -> "📵 Отклонённый звонок"
+                        "cancelled" -> "📵 Отменённый звонок"
+                        else        -> "📵 Пропущенный звонок"
+                    }
+                } else null
                 val preview = when {
                     lm == null -> "Нет сообщений"
+                    callPreview != null -> callPreview
                     mediaPrefix != null && lm.userId == currentUserId -> "Вы: $mediaPrefix"
                     mediaPrefix != null -> mediaPrefix
                     lm.userId == currentUserId -> "Вы: ${lm.content.orEmpty()}"

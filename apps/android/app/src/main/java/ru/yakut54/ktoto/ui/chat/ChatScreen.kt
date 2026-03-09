@@ -583,6 +583,7 @@ fun ChatScreen(
                                         }
                                     }
                                 },
+                                onCallBack = onStartCall,
                             )
                         }
                     }
@@ -1656,6 +1657,7 @@ private fun MessageBubble(
     allMessages: List<Message> = emptyList(),
     onLongClick: () -> Unit = {},
     onQuoteTap: ((String) -> Unit)? = null,
+    onCallBack: ((callType: String) -> Unit)? = null,
 ) {
     val bubbleColor = if (isMine) MaterialTheme.colorScheme.primary
                       else MaterialTheme.colorScheme.surfaceVariant
@@ -1762,7 +1764,7 @@ private fun MessageBubble(
                 "image" -> ImageBubble(message, isMine, bubbleColor, textColor, onLongClick = onLongClick)
                 "voice" -> VoiceBubble(message, isMine, textColor)
                 "file"  -> FileBubble(message, isMine, textColor)
-                "call"  -> CallMessageContent(message, textColor)
+                "call"  -> CallMessageContent(message, textColor, onCallBack)
                 else -> {
                     Text(text = message.content ?: "", color = textColor)
                     Row(
@@ -2295,7 +2297,11 @@ private fun DeliveryIcon(message: ru.yakut54.ktoto.data.model.Message, textColor
 }
 
 @Composable
-private fun CallMessageContent(message: Message, textColor: androidx.compose.ui.graphics.Color) {
+private fun CallMessageContent(
+    message: Message,
+    textColor: androidx.compose.ui.graphics.Color,
+    onCallBack: ((callType: String) -> Unit)? = null,
+) {
     val json = runCatching { org.json.JSONObject(message.content ?: "{}") }.getOrNull()
     val callType = json?.optString("callType", "audio") ?: "audio"
     val duration = json?.optInt("duration", 0)?.takeIf { it > 0 }
@@ -2313,7 +2319,10 @@ private fun CallMessageContent(message: Message, textColor: androidx.compose.ui.
         else -> Triple(Icons.AutoMirrored.Filled.PhoneMissed, "Пропущенный звонок", androidx.compose.ui.graphics.Color(0xFFF44336))
     }
 
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         Icon(imageVector = icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp))
         Text(text = label, color = textColor, fontSize = 14.sp)
         Text(
@@ -2322,5 +2331,19 @@ private fun CallMessageContent(message: Message, textColor: androidx.compose.ui.
             color = textColor.copy(alpha = 0.6f),
             modifier = Modifier.padding(start = 4.dp),
         )
+        if (onCallBack != null) {
+            Spacer(Modifier.weight(1f))
+            IconButton(
+                onClick = { onCallBack(callType) },
+                modifier = Modifier.size(28.dp),
+            ) {
+                Icon(
+                    imageVector = if (callType == "video") Icons.Default.Videocam else Icons.Default.Call,
+                    contentDescription = "Перезвонить",
+                    tint = androidx.compose.ui.graphics.Color(0xFF4CAF50),
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
     }
 }

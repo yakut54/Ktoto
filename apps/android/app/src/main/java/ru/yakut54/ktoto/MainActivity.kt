@@ -25,6 +25,7 @@ class MainActivity : ComponentActivity() {
     val pendingConversationId = MutableStateFlow<String?>(null)
     val pendingShareData = MutableStateFlow<SharePayload?>(null)
     val pendingCallAction = MutableStateFlow<String?>(null)
+    val pendingFromSleep = MutableStateFlow(false)
 
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -44,6 +45,9 @@ class MainActivity : ComponentActivity() {
         }
         intent?.getStringExtra("action")?.let {
             pendingCallAction.value = it
+        }
+        if (intent?.getBooleanExtra("fromSleep", false) == true) {
+            pendingFromSleep.value = true
         }
         handleShareIntent(intent)
 
@@ -65,6 +69,7 @@ class MainActivity : ComponentActivity() {
                     pendingConversationId = pendingConversationId,
                     pendingShareData = pendingShareData,
                     pendingCallAction = pendingCallAction,
+                    pendingFromSleep = pendingFromSleep,
                 )
             }
         }
@@ -87,6 +92,9 @@ class MainActivity : ComponentActivity() {
         }
         intent.getStringExtra("action")?.let {
             pendingCallAction.value = it
+        }
+        if (intent.getBooleanExtra("fromSleep", false)) {
+            pendingFromSleep.value = true
         }
         handleShareIntent(intent)
     }
