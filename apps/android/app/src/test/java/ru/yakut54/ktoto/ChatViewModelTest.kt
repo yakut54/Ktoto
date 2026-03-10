@@ -593,7 +593,8 @@ class ChatViewModelTest {
         viewModel.init("conv-1")
         advanceUntilIdle()
         _typingFlow.emit("conv-1" to "user-2")
-        advanceUntilIdle()
+        // subscriber runs inline (Unconfined) during emit(), no need to advance —
+        // advanceUntilIdle() would drain the delay(3000) and reset isTyping to false
         assertTrue(viewModel.isTyping.value)
     }
 
@@ -602,8 +603,7 @@ class ChatViewModelTest {
         viewModel.init("conv-1")
         advanceUntilIdle()
         _typingFlow.emit("conv-1" to "user-2")
-        advanceUntilIdle()
-        assertTrue(viewModel.isTyping.value)
+        assertTrue(viewModel.isTyping.value) // inline after emit
         advanceTimeBy(3001)
         advanceUntilIdle()
         assertFalse(viewModel.isTyping.value)
@@ -614,9 +614,8 @@ class ChatViewModelTest {
         viewModel.init("conv-1")
         advanceUntilIdle()
         _typingFlow.emit("conv-1" to "user-2")
-        advanceUntilIdle()
-        advanceTimeBy(2999)
-        advanceUntilIdle()
+        advanceTimeBy(2999) // delay(3000) not fired yet
+        // no advanceUntilIdle() — it would drain the remaining 1ms and flip isTyping to false
         assertTrue(viewModel.isTyping.value)
     }
 
@@ -699,8 +698,8 @@ class ChatViewModelTest {
         viewModel.init("conv-1")
         advanceUntilIdle()
         _deletedFlow.emit("msg-1" to "conv-1")
-        advanceTimeBy(100)
-        advanceUntilIdle()
+        advanceTimeBy(100) // delay(280) not fired yet
+        // no advanceUntilIdle() — it would drain the remaining 180ms and remove the message
         assertEquals(1, viewModel.messages.value.size)
     }
 
