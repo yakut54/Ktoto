@@ -158,6 +158,21 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 -- ============================================================
+-- PASSWORD RESET TOKENS
+-- ============================================================
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT        NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at    TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_prt_token ON password_reset_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_prt_user  ON password_reset_tokens(user_id);
+
+-- ============================================================
 -- AUTO updated_at TRIGGER
 -- ============================================================
 CREATE OR REPLACE FUNCTION update_updated_at()

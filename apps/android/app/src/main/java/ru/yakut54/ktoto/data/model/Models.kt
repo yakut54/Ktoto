@@ -118,6 +118,7 @@ data class RenameGroupRequest(val name: String)
 data class ChangeRoleRequest(val role: String)
 
 data class ChangePasswordRequest(val currentPassword: String, val newPassword: String)
+data class ForgotPasswordRequest(val email: String)
 
 data class BlockedUser(
     val id: String,

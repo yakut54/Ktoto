@@ -22,6 +22,7 @@ import ru.yakut54.ktoto.data.model.AddMemberRequest
 import ru.yakut54.ktoto.data.model.AuthResponse
 import ru.yakut54.ktoto.data.model.BlockedUser
 import ru.yakut54.ktoto.data.model.ChangePasswordRequest
+import ru.yakut54.ktoto.data.model.ForgotPasswordRequest
 import ru.yakut54.ktoto.data.model.ChangeRoleRequest
 import ru.yakut54.ktoto.data.model.Conversation
 import ru.yakut54.ktoto.data.model.FcmTokenRequest
@@ -48,6 +49,9 @@ interface ApiService {
 
     @POST("api/auth/register")
     suspend fun register(@Body body: RegisterRequest): AuthResponse
+
+    @POST("api/auth/forgot-password")
+    suspend fun forgotPassword(@Body body: ForgotPasswordRequest): OkResponse
 
     @GET("api/auth/me")
     suspend fun getMe(@Header("Authorization") token: String): UserResponse

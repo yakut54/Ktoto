@@ -47,6 +47,7 @@ import ru.yakut54.ktoto.data.socket.SocketManager
 import ru.yakut54.ktoto.data.store.TokenStore
 import ru.yakut54.ktoto.call.CallState
 import ru.yakut54.ktoto.ui.auth.AuthScreen
+import ru.yakut54.ktoto.ui.auth.ForgotPasswordScreen
 import ru.yakut54.ktoto.ui.call.CallScreen
 import ru.yakut54.ktoto.ui.call.CallViewModel
 import ru.yakut54.ktoto.ui.callhistory.CallHistoryScreen
@@ -75,6 +76,7 @@ object Routes {
     const val GROUP_INFO = "group_info/{convId}/{convName}/{userId}"
     const val SETTINGS = "settings"
     const val BLOCKED_USERS = "blocked_users"
+    const val FORGOT_PASSWORD = "forgot_password"
 
     fun chat(convId: String, convName: String, userId: String, otherId: String = "") =
         "chat/$convId/${convName.ifBlank { "Чат" }}/$userId/${otherId.ifBlank { "_" }}"
@@ -256,11 +258,18 @@ fun AppNavigation(
         },
     ) {
         composable(Routes.AUTH) {
-            AuthScreen(onSuccess = {
-                navController.navigate(Routes.CONVERSATIONS) {
-                    popUpTo(Routes.AUTH) { inclusive = true }
-                }
-            })
+            AuthScreen(
+                onSuccess = {
+                    navController.navigate(Routes.CONVERSATIONS) {
+                        popUpTo(Routes.AUTH) { inclusive = true }
+                    }
+                },
+                onForgotPassword = { navController.navigate(Routes.FORGOT_PASSWORD) },
+            )
+        }
+
+        composable(Routes.FORGOT_PASSWORD) {
+            ForgotPasswordScreen(onBack = { navController.popBackStack() })
         }
 
         composable(Routes.CONVERSATIONS) {

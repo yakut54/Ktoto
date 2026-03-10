@@ -44,7 +44,7 @@ import androidx.compose.ui.unit.sp
 import org.koin.androidx.compose.koinViewModel
 
 @Composable
-fun AuthScreen(onSuccess: () -> Unit) {
+fun AuthScreen(onSuccess: () -> Unit, onForgotPassword: () -> Unit = {}) {
     val vm: AuthViewModel = koinViewModel()
     val state by vm.state.collectAsState()
 
@@ -198,6 +198,16 @@ fun AuthScreen(onSuccess: () -> Unit) {
                     if (isLogin) "Нет аккаунта? Зарегистрироваться"
                     else "Уже есть аккаунт? Войти"
                 )
+            }
+
+            if (isLogin) {
+                TextButton(onClick = onForgotPassword) {
+                    Text(
+                        "Забыл пароль?",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp,
+                    )
+                }
             }
         }
     }
