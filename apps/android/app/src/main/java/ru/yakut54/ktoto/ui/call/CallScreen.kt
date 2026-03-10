@@ -48,6 +48,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import coil3.compose.AsyncImage
 import org.koin.androidx.compose.koinViewModel
 import org.webrtc.EglBase
+import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
 import ru.yakut54.ktoto.call.CallState
@@ -234,6 +235,7 @@ private fun SurfaceVideoView(
                     renderer.init(eglContext, null)
                     renderer.setEnableHardwareScaler(true)
                     renderer.setMirror(mirror)
+                    renderer.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FILL)
                     if (isOnTop) renderer.setZOrderMediaOverlay(true)
                     track.addSink(renderer)
                 } catch (e: Exception) {
