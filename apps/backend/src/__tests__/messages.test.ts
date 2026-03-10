@@ -113,17 +113,16 @@ describe('Messages — full flow', () => {
       expect(res.json()).toEqual([])
     })
 
-    it('⚠ before= with invalid UUID string → 500 (no input validation)', async () => {
+    it('before= with invalid UUID string → 400 (input validation)', async () => {
       const convId = await createDirectConv(app, alice, bob.id)
       const res = await app.inject({
         method: 'GET', url: `/api/conversations/${convId}/messages?before=not-a-uuid`,
         headers: bearer(alice),
       })
-      // PostgreSQL cast ::uuid fails → 500 — documents missing validation
-      expect(res.statusCode).toBe(500)
+      expect(res.statusCode).toBe(400)
     })
 
-    it('⚠ system messages NOT returned by GET /messages (INNER JOIN on user_id=NULL)', async () => {
+    it('system messages returned by GET /messages (LEFT JOIN on user_id=NULL)', async () => {
       const groupRes = await app.inject({
         method: 'POST', url: '/api/conversations',
         headers: bearer(alice),
@@ -137,14 +136,13 @@ describe('Messages — full flow', () => {
       )
       expect(rows.length).toBeGreaterThanOrEqual(1) // exists in DB
 
-      // But GET /messages uses INNER JOIN users ON u.id = m.user_id
-      // System messages have user_id=NULL → join fails → not returned via API
+      // GET /messages uses LEFT JOIN — system messages (user_id=NULL) ARE returned
       const res = await app.inject({
         method: 'GET', url: `/api/conversations/${groupId}/messages`,
         headers: bearer(alice),
       })
       const systemMsgs = res.json().filter((m: { type: string }) => m.type === 'system')
-      expect(systemMsgs.length).toBe(0) // documents the gap
+      expect(systemMsgs.length).toBeGreaterThanOrEqual(1)
     })
 
     it('system messages do NOT count as unread (user_id IS NULL)', async () => {
@@ -518,7 +516,7 @@ describe('Messages — full flow', () => {
       expect(res.statusCode).toBe(400)
     })
 
-    it('reply_to_id from a different conversation → stored but replyTo preview is null in GET', async () => {
+    it('reply_to_id from a different conversation → reply_to_id nullified (cross-conv validation)', async () => {
       const conv1 = await createDirectConv(app, alice, bob.id)
       const charlie = await registerUser(app, { username: 'charlie', email: 'charlie@t.com' })
       const conv2 = await createDirectConv(app, alice, charlie.id)
@@ -533,18 +531,14 @@ describe('Messages — full flow', () => {
       })
       expect(res.statusCode).toBe(201)
 
-      // GET messages: replyTo preview null because rm is in a different conversation
-      // (LEFT JOIN messages rm ON rm.id = m.reply_to_id — no conversation filter, so it IS found)
-      // replyToId IS set, and replyTo MAY have content — document actual behavior
+      // GET messages: reply_to_id is nullified by cross-conv validation (prevents preview leak)
       const listRes = await app.inject({
         method: 'GET', url: `/api/conversations/${conv2}/messages`,
         headers: bearer(alice),
       })
-      const crossReplyMsg = listRes.json().find((m: { replyToId: string }) => m.replyToId === msgInConv1.id)
+      const crossReplyMsg = listRes.json().find((m: { content: string }) => m.content === 'cross-conv reply')
       expect(crossReplyMsg).toBeDefined()
-      expect(crossReplyMsg.replyToId).toBe(msgInConv1.id)
-      // replyTo preview IS populated (no conversation check in the JOIN) — documents the leak
-      // A message from conv1 is visible as reply preview in conv2
+      expect(crossReplyMsg.replyToId).toBeNull()
     })
   })
 
