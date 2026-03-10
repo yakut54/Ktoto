@@ -75,12 +75,12 @@ jobs:
 
       - name: Decode keystore
         run: |
-          echo "${{ secrets.KEYSTORE_B64 }}" | base64 -d > apps/android/ktoto-release.keystore
+          echo "${{ secrets.KEYSTORE_B64 }}" | base64 -d > ${{ github.workspace }}/apps/android/ktoto-release.keystore
 
       - name: Build signed release APK
         working-directory: apps/android
         env:
-          KEYSTORE_PATH: ktoto-release.keystore
+          KEYSTORE_PATH: ${{ github.workspace }}/apps/android/ktoto-release.keystore
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
