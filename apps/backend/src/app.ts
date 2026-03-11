@@ -13,6 +13,7 @@ import { healthRoutes } from './routes/health.js'
 import { authorizePlugin } from './plugins/authorize.js'
 import { adminRoutes } from './routes/admin/index.js'
 import { callRoutes } from './routes/calls/index.js'
+import { privacyRoute } from './routes/privacy.js'
 
 export async function buildApp() {
   const isProd = process.env.NODE_ENV === 'production'
@@ -49,6 +50,7 @@ export async function buildApp() {
   await app.register(userRoutes, { prefix: '/api/users' })
   await app.register(adminRoutes, { prefix: '/api/admin' })
   await app.register(callRoutes, { prefix: '/api/calls' })
+  await app.register(privacyRoute)
 
   return app
 }
