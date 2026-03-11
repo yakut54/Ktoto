@@ -40,6 +40,36 @@ const NTFY_PASS = process.env.NTFY_PASS || 'ntfy-backend-2026'
 
 const auth = Buffer.from(`${NTFY_USER}:${NTFY_PASS}`).toString('base64')
 
+export async function pushMessageToUser(
+  query: QueryFn,
+  userId: string,
+  data: {
+    conversationId: string
+    senderName: string
+    messageType: string
+    content: string
+  },
+) {
+  const { rows } = await query('SELECT fcm_token FROM users WHERE id=$1', [userId])
+  const token = (rows[0] as { fcm_token?: string | null })?.fcm_token
+  if (!token) return
+  try {
+    await admin.messaging().send({
+      token,
+      data: {
+        type: 'new_message',
+        conversationId: data.conversationId,
+        senderName: data.senderName,
+        messageType: data.messageType,
+        content: data.content.slice(0, 200),
+      },
+      android: { priority: 'high' },
+    })
+  } catch {
+    // Non-critical
+  }
+}
+
 export async function pushToUser(userId: string, title: string, message: string, conversationId?: string) {
   try {
     const headers: Record<string, string> = {

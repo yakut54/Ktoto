@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { v4 as uuidv4 } from 'uuid'
 import sharp from 'sharp'
-import { pushToUser } from '../../services/push.service.js'
+import { pushMessageToUser } from '../../services/push.service.js'
 import { Readable } from 'stream'
 
 interface CreateConversationBody {
@@ -550,7 +550,11 @@ export async function conversationRoutes(app: FastifyInstance) {
             const previewContent = msgType === 'image' ? '📷 Фото' :
                                    msgType === 'voice' ? '🎤 Голосовое' :
                                    msgType === 'video' ? '🎬 Видео' : '📎 Файл'
-            pushToUser(p.user_id, userRow.rows[0].username, previewContent, convId)
+            pushMessageToUser(
+              (sql, params) => app.pg.query(sql, params as unknown[]),
+              p.user_id,
+              { conversationId: convId, senderName: userRow.rows[0].username, messageType: msgType, content: previewContent },
+            )
           }
         }
 
@@ -683,7 +687,11 @@ export async function conversationRoutes(app: FastifyInstance) {
         for (const p of participants.rows) {
           app.io.to(`user:${p.user_id}`).emit('new_message', payload)
           if (p.user_id !== userId) {
-            pushToUser(p.user_id, userRow.rows[0].username, payload.content, convId)
+            pushMessageToUser(
+              (sql, params) => app.pg.query(sql, params as unknown[]),
+              p.user_id,
+              { conversationId: convId, senderName: userRow.rows[0].username, messageType: 'text', content: payload.content ?? '' },
+            )
           }
         }
 
